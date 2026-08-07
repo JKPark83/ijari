@@ -22,7 +22,13 @@ docs/       # 계획 문서 사본, 용량/판정 기록
 cd pipeline
 uv sync
 uv run python download.py --list     # 분기 → uddi 매핑 확인
-uv run python download.py 2026Q1     # 분기 zip 다운로드
+uv run python download.py 2026Q1     # 분기 zip 다운로드 (내부 기준월 자동 검증)
+uv run python -m etl.run             # 로컬 빌드(build/*.csv) + 검증 8종
+uv run python -m etl.run --load      # Supabase 적재 + 원격 검증 (.env 필요)
 ```
+
+주의: 포털 파일의 분기는 **zip 내부 CSV의 기준월**이 정본이다. 포털 목록
+순서로 어림잡으면 한 칸 밀린다 (`download.py`의 QUARTERS 주석 참조).
+2025Q3(202509) 정기 스냅숏은 포털에 없고 202510 파일이 2025Q4로 들어간다.
 
 스택: Supabase Postgres + PostGIS (앱 직접 질의, 읽기 전용 RLS) · Python + DuckDB ETL · SwiftUI + MapKit (iOS 17+).

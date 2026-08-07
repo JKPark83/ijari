@@ -1,6 +1,7 @@
 data/
 .env
 # 스파이크 산출물 — 상호명 포함 로컬 검증 전용 (health.md만 커밋)
+pipeline/build/
 pipeline/spike/spike.duckdb
 pipeline/spike/samples.csv
 pipeline/spike/report/

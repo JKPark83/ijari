@@ -24,21 +24,24 @@ HEADERS = {
     "Referer": f"{PORTAL}/data/{DATASET_PK}/fileData.do",
 }
 
-# 2023Q1 이전 아카이브는 오염(ID 날짜 오염)으로 확정 — 매핑에 넣지 않는다.
+# 라벨은 zip "내부 CSV의 기준월"을 내려받아 실측한 값이다 (2026-08 검증).
+# 포털 목록 순서로 어림잡으면 한 칸 밀린다 — 목록 첫 항목(uddi:e311a913…)은
+# 20221231(2022Q4, ID 날짜 오염)이라 매핑에서 뺐다.
+# 2025Q3(202509) 정기 스냅숏은 포털에 없다. 대신 202510 기준 파일이 있어
+# 월→분기 규칙(10월=Q4)대로 2025Q4로 넣는다. ETL의 1분기 공백 브리징이 이 구멍을 처리한다.
 QUARTERS: dict[str, str] = {
-    "2023Q1": "uddi:e311a913-1fca-4473-966b-87b40f4772f0",  # 20230331
-    "2023Q2": "uddi:30cccb49-5af5-4a96-ad70-81fe007c2039",  # 20230630
-    "2023Q3": "uddi:347b0e40-0648-46b2-8625-af9419bdf8d5",  # 20230930
-    "2023Q4": "uddi:798b6f4a-18f9-4c6c-b4e7-9054a9d8bbf4",  # 20231231
-    "2024Q1": "uddi:52b7eac4-fe84-4357-88f5-a842ccc4d1cd",  # 20240331
-    "2024Q2": "uddi:4e95c557-240a-45cd-ab99-e631763a9f1c",  # 20240630
-    "2024Q3": "uddi:b5774885-a961-41a0-9e17-ac43087a3767",  # 20240930
-    "2024Q4": "uddi:9cefeea7-4b0a-4817-ae7c-9f79ca2c7cfd",  # 20241231
-    "2025Q1": "uddi:86a02b73-c0ce-447f-a492-f99490392056",  # 20250331
-    "2025Q2": "uddi:e61bf1be-7a4c-400a-99a7-f91543ca64ca",  # 20250630
-    "2025Q3": "uddi:05123ff0-e436-40f2-9814-ad1ac0ae4be4",  # 20251030 (포털 표기 기준)
-    "2025Q4": "uddi:9a136460-5faf-4ab7-a887-8c2b425274e4",  # 20251231
-    "2026Q1": "uddi:6a450671-390c-4b6d-979c-fa056a627084",  # 20260331 — 현재 메인 파일
+    "2023Q1": "uddi:30cccb49-5af5-4a96-ad70-81fe007c2039",  # 기준월 202303
+    "2023Q2": "uddi:347b0e40-0648-46b2-8625-af9419bdf8d5",  # 기준월 202306
+    "2023Q3": "uddi:798b6f4a-18f9-4c6c-b4e7-9054a9d8bbf4",  # 기준월 202309
+    "2023Q4": "uddi:52b7eac4-fe84-4357-88f5-a842ccc4d1cd",  # 기준월 202312
+    "2024Q1": "uddi:4e95c557-240a-45cd-ab99-e631763a9f1c",  # 기준월 202403
+    "2024Q2": "uddi:b5774885-a961-41a0-9e17-ac43087a3767",  # 기준월 202406
+    "2024Q3": "uddi:9cefeea7-4b0a-4817-ae7c-9f79ca2c7cfd",  # 기준월 202409
+    "2024Q4": "uddi:86a02b73-c0ce-447f-a492-f99490392056",  # 기준월 202412
+    "2025Q1": "uddi:e61bf1be-7a4c-400a-99a7-f91543ca64ca",  # 기준월 202503
+    "2025Q2": "uddi:05123ff0-e436-40f2-9814-ad1ac0ae4be4",  # 기준월 202506
+    "2025Q4": "uddi:9a136460-5faf-4ab7-a887-8c2b425274e4",  # 기준월 202510 (202509 없음)
+    "2026Q1": "uddi:6a450671-390c-4b6d-979c-fa056a627084",  # 기준월 202603 — 현재 메인 파일
 }
 
 
@@ -98,7 +101,24 @@ def download(quarter: str) -> Path:
         raise RuntimeError(f"{quarter}: zip이 아닌 응답({len(data)} bytes) — 링크 만료/변경 의심")
     dest.write_bytes(data)
     print(f"{quarter}: 완료 ({len(data):,} bytes)")
+    verify_quarter(quarter, dest)
     return dest
+
+
+def verify_quarter(quarter: str, zip_path: Path) -> None:
+    """zip 내부 CSV의 기준월(YYYYMM)이 라벨 분기와 맞는지 검사 — 매핑 밀림 방지."""
+    import re
+    with zipfile.ZipFile(zip_path) as zf:
+        for info in zf.infolist():
+            if m := re.search(r"(20\d{2})(\d{2})", info.filename):
+                year, month = int(m.group(1)), int(m.group(2))
+                actual = f"{year}Q{(month - 1) // 3 + 1}"
+                if actual != quarter:
+                    raise RuntimeError(
+                        f"{quarter}: 내부 기준월 {year}{month:02d} = {actual} — "
+                        f"uddi 매핑이 밀렸다. QUARTERS를 실측으로 고칠 것")
+                return
+    print(f"{quarter}: 경고 — 내부 파일명에서 기준월을 찾지 못해 검증 생략")
 
 
 def extract_sido(zip_path: Path, sido_keyword: str) -> list[Path]:
