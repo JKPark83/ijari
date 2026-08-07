@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 1 — 데이터 스파이크와 20곳 게이트</title>
+<meta name="description" content="이 자리 앱 Phase 1. 서울 2개 분기를 대조해 교체 이벤트를 뽑고, 아는 자리 20곳으로 데이터를 검증하는 관문.">
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#24292f;--muted:#6b7280;--border:#e5e7eb;--code-bg:#f6f8fa;--link:#0969da;--accent:#0969da;--note-bg:#f6f8fa;--warn-bg:#fff8e6;--warn-br:#eda100;--gate:#d03b3b}
+@media (prefers-color-scheme:dark){:root{--bg:#1e1e1e;--fg:#e6e6e6;--muted:#9aa0a6;--border:#3a3a3a;--code-bg:#2a2a2a;--link:#6cb6ff;--accent:#6cb6ff;--note-bg:#262626;--warn-bg:#2e2716;--warn-br:#c98500;--gate:#f47067}}
+*{box-sizing:border-box}
+body{max-width:860px;margin:0 auto;padding:2rem 1.2rem;background:var(--bg);color:var(--fg);font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;line-height:1.75;word-break:keep-all}
+h1{font-size:1.7rem;line-height:1.35;margin:0 0 .5rem}
+h2{margin-top:2.6rem;padding-bottom:.3rem;border-bottom:1px solid var(--border)}
+h3{margin-top:1.8rem}
+p,li{font-size:1rem}
+a{color:var(--link)}
+.subtitle{color:var(--muted);margin-top:0}
+.meta{color:var(--muted);font-size:.85rem;border-bottom:1px solid var(--border);padding-bottom:1rem}
+pre{background:var(--code-bg);padding:1rem;border-radius:8px;overflow-x:auto;font-size:.85rem;line-height:1.55}
+code:not(pre code){background:var(--code-bg);padding:.12em .35em;border-radius:4px;font-size:.88em}
+table{border-collapse:collapse;width:100%;display:block;overflow-x:auto;font-size:.93rem}
+th,td{border:1px solid var(--border);padding:.45rem .7rem;text-align:left;vertical-align:top}
+th{background:var(--note-bg);white-space:nowrap}
+blockquote{margin:1.5rem 0;padding:.7rem 1rem;border-left:4px solid var(--accent);background:var(--note-bg);border-radius:0 6px 6px 0}
+blockquote.warn{border-left-color:var(--warn-br);background:var(--warn-bg)}
+blockquote.gate{border-left-color:var(--gate);background:var(--warn-bg)}
+.done{background:var(--note-bg);border:1px solid var(--border);border-radius:8px;padding:1rem 1.2rem;margin:1.5rem 0}
+.done p:first-child{margin-top:0}
+.nav{display:flex;justify-content:space-between;margin-top:2.5rem;border-top:1px solid var(--border);padding-top:1rem;font-size:.92rem}
+</style>
+</head>
+<body>
+<article>
+
+<h1>Phase 1 — 데이터 스파이크와 20곳 게이트</h1>
+<p class="subtitle">기획의 최대 관문. 세종시 표본으로 검증한 결과가 서울에서도 재현되는지, 그리고 내 기억과 맞는지 확인한다</p>
+<p class="meta">선행: <a href="phase-0-준비.html">Phase 0</a> · 예상 2~3일 · 다음: <a href="phase-2-스키마-ETL.html">Phase 2 스키마 + ETL</a></p>
+
+<div class="done">
+<p><strong>✅ 완료 판정</strong></p>
+<ol>
+<li><code>spike/report.html</code>이 생성되고, 브라우저로 열어 주소로 자리를 찾아볼 수 있다.</li>
+<li>미리 적어둔 <strong>내 생활권 자리 20곳 대조표에서 15곳 이상이 기억과 일치</strong>한다.</li>
+<li>대조 결과와 불일치 원인 메모가 <code>spike/gate-result.md</code>로 남아 있다.</li>
+</ol>
+<p style="color:var(--gate)"><strong>15곳 미만이면 여기서 프로젝트를 중단하고 원인을 분석한다. Phase 2 이후는 진행하지 않는다.</strong></p>
+</div>
+
+<h2>1. 왜 이 phase가 먼저인가</h2>
+
+<p>기획서의 수치(ID 유지율 97.3%, 재등장 82.8% 등)는 전부 <strong>세종시 1만 4천 건</strong> 기준이다. 서울은 규모가 30배 이상이고 상권 밀도·건물 유형이 완전히 다르다. 세종에서 성립한 규칙이 서울에서 깨지면 제품 전체가 무너지므로, 스키마·앱보다 이 검증이 먼저다.</p>
+
+<p>이 phase의 산출물은 코드가 아니라 <strong>판정</strong>이다: "이 데이터로 만든 교체 이력을 사람들에게 보여줘도 되는가?"</p>
+
+<h2>2. 게이트 절차 — 순서가 중요하다</h2>
+
+<blockquote class="gate"><p><strong>리포트를 보기 전에, 대조할 20곳을 먼저 적는다.</strong> 데이터를 먼저 보면 "아 맞아, 여기 바뀌었었지"라며 기억이 데이터에 끌려간다(확증 편향). 순서를 지켜야 검증이 의미가 있다.</p></blockquote>
+
+<ol>
+<li><code>spike/gate-list.md</code>에 내 생활권(집·회사 주변)에서 <strong>잘 아는 상가 자리 20곳</strong>을 적는다. 자리마다: 대략적 주소, 2023년 초에 뭐였는지, 지금 뭐인지, 그 사이 바뀐 기억이 있는지.</li>
+<li>바뀐 기억이 있는 자리와 오래 버틴 자리를 <strong>반반 섞는다</strong> — 교체만 20곳이면 미탐(놓침)을 못 잡고, 장수 가게만 20곳이면 오탐(과잉 교체)을 못 잡는다.</li>
+<li>그다음에 파이프라인을 돌리고 리포트를 연다.</li>
+<li>자리마다 판정: <strong>일치 / 불일치 / 판정 불가</strong>(데이터에 그 자리가 아예 없음 등). 판정 불가는 불일치로 센다.</li>
+<li>결과와 원인 메모를 <code>spike/gate-result.md</code>에 남긴다.</li>
+</ol>
+
+<h2>3. 스파이크 파이프라인 — 만들 것</h2>
+
+<p>입력은 <strong>서울 2023Q1 + 최신 분기</strong> 딱 두 개다. 전체 14개 분기는 Phase 2에서 처리한다. 두 분기만으로도 "2023년 초 업종 → 현재 업종, 그 사이 교체 여부"를 대조하기엔 충분하고, 파이프라인 로직(정규화·자리 키·판정)의 골격이 그대로 Phase 2의 모듈이 된다.</p>
+
+<h3>3-1. 정규화 (normalize.py의 원형)</h3>
+
+<pre><code class="language-python">import duckdb
+
+QUARTERS = ["2023Q1", "2026Q2"]   # 최신 분기는 실제 확인 후 수정
+
+con = duckdb.connect("spike/spike.duckdb")
+for q in QUARTERS:
+    con.sql(f"""
+    create or replace table stores_{q} as
+    select
+      상가업소번호 as store_id,
+      -- 상호 정규화: 공백·특수문자 제거 + 소문자화. '카페베네 역삼점'='카페베네역삼점'
+      regexp_replace(lower(coalesce(상호명,'') || coalesce(지점명,'')),
+                     '[\\s()（）\\-_.,''"㈜]+', '', 'g') as name_norm,
+      상권업종대분류명 as cat_top, 상권업종소분류코드 as cat_code, 상권업종소분류명 as cat_name,
+      시군구명 as sigungu, 행정동명 as dong, 도로명주소 as road_address,
+      건물관리번호 as building_id,
+      coalesce(nullif(trim(층정보),''), '미상') as floor_label,
+      건물관리번호 || '#' || coalesce(nullif(trim(층정보),''),'미상') as place_key,
+      경도::double as lng, 위도::double as lat
+    from read_csv_auto('data/raw/{q}/*서울*.csv', header=true)
+    """)</code></pre>
+
+<h3>3-2. 자리 단위 대조</h3>
+
+<p>기획서 그림 6의 판정 트리를 두 분기 버전으로 구현한다:</p>
+
+<pre><code class="language-python">con.sql("""
+create or replace table place_diff as
+with a as (select place_key, road_address,
+                  list(name_norm) as names_a, list(cat_name) as cats_a, count(*) as n_a
+           from stores_2023Q1 group by 1, 2),
+     b as (select place_key,
+                  list(name_norm) as names_b, list(cat_name) as cats_b, count(*) as n_b
+           from stores_2026Q2 group by 1)
+select coalesce(a.place_key, b.place_key) as place_key,
+       a.road_address, a.n_a, b.n_b, a.cats_a, b.cats_b,
+       -- ID가 아니라 정규화 상호 기준: 살아남은 상호 수
+       len(list_intersect(a.names_a, b.names_b)) as survived,
+       case
+         when a.place_key is null then '신규 자리'
+         when b.place_key is null then '자리 소멸(공실 후보)'
+         when len(list_intersect(a.names_a, b.names_b)) = 0 then '전원 교체'
+         when len(list_intersect(a.names_a, b.names_b)) < a.n_a then '일부 교체'
+         else '유지'
+       end as verdict
+from a full join b using (place_key)
+""")</code></pre>
+
+<blockquote><p>두 분기 diff에서는 ID 유지 여부보다 <strong>정규화 상호의 생존</strong>이 판정 기준이다. 3년 반 간격이면 그 사이 ID 재발급이 있었을 수 있으므로, ID로 비교하면 교체가 과대평가된다. 상호가 살아 있으면 같은 가게로 본다.</p></blockquote>
+
+<h3>3-3. 검증 리포트 생성</h3>
+
+<p><code>spike/report.html</code> — 자체 완결 HTML 하나로 만든다. 요건:</p>
+<ul>
+<li>도로명주소로 검색(필터)할 수 있는 표. 행: 자리(place_key), 2023Q1 업종들, 최신 업종들, 판정, 점포 수 변화.</li>
+<li><strong>스파이크 리포트에는 상호명을 그대로 노출한다</strong> — 이건 나 혼자 보는 검증 도구이고, 상호가 있어야 기억과 대조가 된다. (앱·DB에는 절대 안 넣는다는 것과 별개다.)</li>
+<li>요약 통계 머리말: 자리 수, 유지/일부 교체/전원 교체/공실 후보/신규 비율 — 세종시 수치(재등장 91.7% 등)와 크게 어긋나면 그 자체가 경보다.</li>
+</ul>
+
+<h2>4. 함께 잰다 — 서울 데이터 건강 체크</h2>
+
+<p>게이트 대조와 별도로, 아래 수치를 <code>spike/health.md</code>에 기록한다. Phase 2의 판정 로직 파라미터가 된다.</p>
+
+<table>
+<thead><tr><th>측정 항목</th><th>세종시 기준값</th><th>서울에서 확인할 것</th></tr></thead>
+<tbody>
+<tr><td>건물관리번호 결측률</td><td>0% (2023~)</td><td>0%에 가까운지. 아니면 자리 키 전략 재검토</td></tr>
+<tr><td>층정보 결측률</td><td>50~55%</td><td>비슷한 수준인지. 서울이 훨씬 높으면 confidence 정책 조정</td></tr>
+<tr><td>상가업소번호 날짜 오염</td><td>2023Q1부터 0%</td><td>ID 내 날짜가 파일 기준일 이후인 비율이 0%인지</td></tr>
+<tr><td>좌표 결측·(0,0) 좌표</td><td>—</td><td>비율 확인. 지도 앱이므로 좌표 없는 행은 버릴 수밖에 없다</td></tr>
+<tr><td>자리당 점포 수 분포</td><td>—</td><td>중앙값·95분위. D9(다점포 층) 결정이 현실적인지 판단</td></tr>
+</tbody>
+</table>
+
+<h2>5. 게이트 실패 시 시나리오</h2>
+
+<ul>
+<li><strong>미탐이 많다</strong>(바뀐 걸 안 바뀌었다고 함) — 정규화 규칙이 너무 강한 건 아닌지 확인(다른 가게를 같은 상호로 뭉갬). 정규화 규칙 완화 후 재시도.</li>
+<li><strong>오탐이 많다</strong>(안 바뀐 걸 바뀌었다고 함) — 상호 표기 변경(리브랜딩·법인 전환)이 원인일 수 있다. 업종 소분류까지 같으면 유지로 보는 보조 규칙 추가 후 재시도.</li>
+<li><strong>자리가 아예 없다</strong>가 많다 — 좌표·주소 매칭 문제. 데이터 자체의 서울 커버리지를 의심하고, 표본을 넓혀 재확인.</li>
+<li>규칙을 두 번 고쳐도 15곳을 못 넘기면 — <strong>중단하고 기획을 다시 본다.</strong> 이 게이트는 통과할 때까지 규칙을 주무르는 용도가 아니다.</li>
+</ul>
+
+<h2>6. 산출물</h2>
+<pre><code>pipeline/spike/
+├── gate-list.md      # 리포트 보기 전에 작성한 20곳
+├── spike.py          # 위 파이프라인 (normalize·diff·report 생성)
+├── report.html       # 검색 가능한 대조 리포트
+├── health.md         # 서울 데이터 건강 수치
+└── gate-result.md    # 최종 판정: N/20 일치, 불일치 원인
+</code></pre>
+
+<div class="nav">
+<span>← <a href="phase-0-준비.html">Phase 0 — 준비</a></span>
+<span><a href="phase-2-스키마-ETL.html">Phase 2 — 스키마 + ETL</a> →</span>
+</div>
+
+</article>
+</body>
+</html>

@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 3 — iOS 지도 골격</title>
+<meta name="description" content="이 자리 앱 Phase 3. XcodeGen 프로젝트, supabase-swift 연동, 줌 사다리 지도.">
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#24292f;--muted:#6b7280;--border:#e5e7eb;--code-bg:#f6f8fa;--link:#0969da;--accent:#0969da;--note-bg:#f6f8fa;--warn-bg:#fff8e6;--warn-br:#eda100;--gate:#d03b3b}
+@media (prefers-color-scheme:dark){:root{--bg:#1e1e1e;--fg:#e6e6e6;--muted:#9aa0a6;--border:#3a3a3a;--code-bg:#2a2a2a;--link:#6cb6ff;--accent:#6cb6ff;--note-bg:#262626;--warn-bg:#2e2716;--warn-br:#c98500;--gate:#f47067}}
+*{box-sizing:border-box}
+body{max-width:860px;margin:0 auto;padding:2rem 1.2rem;background:var(--bg);color:var(--fg);font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;line-height:1.75;word-break:keep-all}
+h1{font-size:1.7rem;line-height:1.35;margin:0 0 .5rem}
+h2{margin-top:2.6rem;padding-bottom:.3rem;border-bottom:1px solid var(--border)}
+h3{margin-top:1.8rem}
+p,li{font-size:1rem}
+a{color:var(--link)}
+.subtitle{color:var(--muted);margin-top:0}
+.meta{color:var(--muted);font-size:.85rem;border-bottom:1px solid var(--border);padding-bottom:1rem}
+pre{background:var(--code-bg);padding:1rem;border-radius:8px;overflow-x:auto;font-size:.85rem;line-height:1.55}
+code:not(pre code){background:var(--code-bg);padding:.12em .35em;border-radius:4px;font-size:.88em}
+table{border-collapse:collapse;width:100%;display:block;overflow-x:auto;font-size:.93rem}
+th,td{border:1px solid var(--border);padding:.45rem .7rem;text-align:left;vertical-align:top}
+th{background:var(--note-bg);white-space:nowrap}
+blockquote{margin:1.5rem 0;padding:.7rem 1rem;border-left:4px solid var(--accent);background:var(--note-bg);border-radius:0 6px 6px 0}
+blockquote.warn{border-left-color:var(--warn-br);background:var(--warn-bg)}
+.done{background:var(--note-bg);border:1px solid var(--border);border-radius:8px;padding:1rem 1.2rem;margin:1.5rem 0}
+.done p:first-child{margin-top:0}
+figure{margin:2rem 0;text-align:center}
+figure svg{max-width:100%;height:auto}
+figcaption{font-size:.85rem;color:var(--muted);margin-top:.5rem}
+.nav{display:flex;justify-content:space-between;margin-top:2.5rem;border-top:1px solid var(--border);padding-top:1rem;font-size:.92rem}
+.swatch{display:inline-block;width:.9em;height:.9em;border-radius:3px;vertical-align:-.1em;margin-right:.3em;border:1px solid var(--border)}
+</style>
+</head>
+<body>
+<article>
+
+<h1>Phase 3 — iOS 지도 골격</h1>
+<p class="subtitle">여기서 처음 Xcode를 연다. 실기기 지도 위에 서울 데이터가 레벨별로 찍히면 성공</p>
+<p class="meta">선행: <a href="phase-2-스키마-ETL.html">Phase 2 적재 완료</a> · 예상 3~4일 · 다음: <a href="phase-4-연대기-상세.html">Phase 4 연대기 상세</a></p>
+
+<div class="done">
+<p><strong>✅ 완료 판정 — 실기기(iPhone)에서 직접 조작해 확인한다</strong></p>
+<ol>
+<li>앱을 실행하면 서울 전체 뷰에서 <strong>구 단위 마커</strong>(평균 교체 수)가 보인다.</li>
+<li>핀치 줌인하면 구 → 동 → 개별 자리 순으로 마커가 바뀐다.</li>
+<li>강남역 일대까지 줌인하면 개별 자리 마커가 교체 수에 따라 다른 색으로 찍힌다.</li>
+<li>지도를 빠르게 드래그해도 앱이 버벅이거나 요청이 폭주하지 않는다 (디바운스 확인).</li>
+<li>비행기 모드에서 실행하면 빈 화면이 아니라 안내 문구가 뜬다.</li>
+</ol>
+</div>
+
+<h2>1. 프로젝트 생성 — XcodeGen</h2>
+
+<p>TeslaSync와 같은 방식: <code>project.yml</code>이 소스이고 <code>.xcodeproj</code>는 커밋하지 않는다.</p>
+
+<pre><code class="language-yaml"># ios/project.yml
+name: Ijari
+options:
+  bundleIdPrefix: com.jkpark
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  Supabase:
+    url: https://github.com/supabase/supabase-swift
+    from: 2.0.0
+targets:
+  Ijari:
+    type: application
+    platform: iOS
+    sources: [Ijari]
+    dependencies:
+      - package: Supabase
+        product: Supabase
+    settings:
+      base:
+        DEVELOPMENT_TEAM: WDNVP9B8A9        # 무료 팀. Phase 6에서 유료 팀으로 교체
+        PRODUCT_BUNDLE_IDENTIFIER: com.jkpark.ijari
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: 현재 위치 주변의 자리를 지도에 보여주기 위해 사용합니다.
+</code></pre>
+
+<pre><code class="language-bash">cd ios && xcodegen generate && open Ijari.xcodeproj</code></pre>
+
+<blockquote class="warn"><p>무료 팀 프로비저닝은 <strong>7일마다 만료</strong>된다 — 실기기에서 앱이 갑자기 안 열리면 재빌드가 먼저다. 또 시뮬레이터에서도 지도·네트워크는 다 돌아가므로 이 phase는 시뮬레이터로 개발하고 실기기는 완료 판정 때 확인하면 된다 (TeslaSync와 달리 실기기 전용 제약이 없다).</p></blockquote>
+
+<h2>2. 소스 구조</h2>
+
+<pre><code>ios/Ijari/
+├── IjariApp.swift            # @main
+├── Config.swift              # SUPABASE_URL, ANON_KEY 상수
+├── Models/
+│   ├── Place.swift           # places 행 (Codable)
+│   ├── RegionStat.swift      # region_stats 행
+│   └── MapLevel.swift        # 줌 사다리 enum
+├── Services/
+│   └── IjariClient.swift     # supabase-swift 래퍼: rpc 3종 + 메모리 캐시
+├── Map/
+│   ├── MapScreen.swift       # Map + 레벨 전환 + 디바운스
+│   ├── PlaceMarker.swift     # 자리 마커 (색 램프)
+│   └── RegionMarker.swift    # 지역 마커 (숫자 배지)
+└── Common/
+    └── LoadState.swift       # idle / loading / loaded / failed(Error)
+</code></pre>
+
+<h3>Config.swift — anon key는 공개 키다</h3>
+<pre><code class="language-swift">enum Config {
+    // anon key는 공개해도 되는 키다 (RLS가 읽기 전용을 강제). service_role과 혼동 금지.
+    static let supabaseURL = URL(string: "https://{ref}.supabase.co")!
+    static let supabaseAnonKey = "eyJ..."
+}</code></pre>
+
+<h2>3. 줌 사다리 — MapLevel</h2>
+
+<figure>
+<svg viewBox="0 0 760 170" role="img" aria-label="줌 레벨에 따른 마커 전환" font-size="12">
+<line x1="40" y1="120" x2="720" y2="120" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#a3)"/>
+<defs><marker id="a3" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0 0 L8 3 L0 6 z" fill="var(--muted)"/></marker></defs>
+<text x="380" y="150" text-anchor="middle" fill="var(--muted)" font-size="11">← 줌아웃 (longitudeDelta 큼) · 줌인 (작음) →</text>
+<g text-anchor="middle">
+<rect x="55" y="35" width="130" height="52" rx="8" fill="none" stroke="var(--border)" stroke-width="1.5"/>
+<text x="120" y="57" fill="var(--fg)" font-size="11.5">시·도 (sido)</text><text x="120" y="75" fill="var(--muted)" font-size="10">Δ ≥ 1.5</text>
+<rect x="225" y="35" width="130" height="52" rx="8" fill="none" stroke="var(--border)" stroke-width="1.5"/>
+<text x="290" y="57" fill="var(--fg)" font-size="11.5">시·군·구</text><text x="290" y="75" fill="var(--muted)" font-size="10">0.35 ≤ Δ &lt; 1.5</text>
+<rect x="395" y="35" width="130" height="52" rx="8" fill="none" stroke="var(--border)" stroke-width="1.5"/>
+<text x="460" y="57" fill="var(--fg)" font-size="11.5">행정동</text><text x="460" y="75" fill="var(--muted)" font-size="10">0.08 ≤ Δ &lt; 0.35</text>
+<rect x="565" y="35" width="150" height="52" rx="8" fill="none" stroke="var(--accent)" stroke-width="2"/>
+<text x="640" y="57" fill="var(--fg)" font-size="11.5">개별 자리</text><text x="640" y="75" fill="var(--muted)" font-size="10">Δ &lt; 0.08 · 상한 500</text>
+</g>
+<circle cx="120" cy="112" r="4" fill="var(--muted)"/><circle cx="290" cy="112" r="4" fill="var(--muted)"/><circle cx="460" cy="112" r="4" fill="var(--muted)"/><circle cx="640" cy="112" r="4" fill="var(--accent)"/>
+</svg>
+<figcaption>그림 1. 경도 폭(longitudeDelta) 기준 줌 사다리 — region_stats 3레벨 + places. 출처: 직접 작성</figcaption>
+</figure>
+
+<pre><code class="language-swift">enum MapLevel: Equatable {
+    case sido, sigungu, dong, places
+
+    init(span: MKCoordinateSpan) {
+        switch span.longitudeDelta {
+        case ..&lt;0.08:  self = .places
+        case ..&lt;0.35:  self = .dong
+        case ..&lt;1.5:   self = .sigungu
+        default:       self = .sido
+        }
+    }
+}</code></pre>
+
+<p>경계값(0.08 / 0.35 / 1.5)은 plan-overview의 D2에서 정한 잠정치다. 실기기에서 손맛을 보고 조정하되, <strong>레벨이 바뀌는 순간 마커가 전부 갈리는 시각적 점프</strong>는 정상이다 — MVP에서 부드러운 전환 애니메이션은 범위 밖.</p>
+
+<h2>4. 데이터 로딩 — 디바운스와 취소</h2>
+
+<pre><code class="language-swift">// MapScreen.swift 핵심 로직
+@State private var loadTask: Task&lt;Void, Never&gt;?
+
+func onCameraChange(_ context: MapCameraUpdateContext) {
+    loadTask?.cancel()                       // 이전 요청 취소
+    loadTask = Task {
+        try? await Task.sleep(for: .seconds(0.3))   // 디바운스
+        guard !Task.isCancelled else { return }
+        let region = context.region
+        let level = MapLevel(span: region.span)
+        do {
+            switch level {
+            case .places:
+                markers = .places(try await client.mapPlaces(bbox: region.bbox))
+            default:
+                markers = .regions(try await client.mapRegions(level: level, bbox: region.bbox))
+            }
+        } catch is CancellationError {
+        } catch {
+            loadState = .failed(error)
+        }
+    }
+}</code></pre>
+
+<ul>
+<li>드래그 중 카메라 이벤트는 초당 수십 번 온다 — 0.3초 디바운스 + 직전 Task 취소가 없으면 RPC가 폭주한다 (완료 판정 4번이 이걸 잡는다).</li>
+<li><code>IjariClient</code>는 <strong>bbox를 반올림한 키로 메모리 캐시</strong>(NSCache 또는 딕셔너리, 상한 ~50개 항목)를 둔다. D4 결정대로 디스크 캐시는 없다.</li>
+<li>RPC 호출은 supabase-swift로: <code>client.rpc("map_places", params: [...]).execute()</code> → <code>[Place]</code> 디코딩. 컬럼명이 snake_case이므로 <code>keyDecodingStrategy = .convertFromSnakeCase</code> 또는 명시적 CodingKeys.</li>
+</ul>
+
+<h2>5. 마커 디자인</h2>
+
+<h3>자리 마커 — 교체 수 색 램프 (파랑 단일 색상, 진할수록 많음)</h3>
+<table>
+<thead><tr><th>turnover_count</th><th>색 (라이트)</th><th>비고</th></tr></thead>
+<tbody>
+<tr><td>0</td><td><span class="swatch" style="background:#9aa0a6"></span><code>#9aa0a6</code> 회색</td><td>교체 이력 없음</td></tr>
+<tr><td>1</td><td><span class="swatch" style="background:#86b6ef"></span><code>#86b6ef</code></td><td rowspan="5">파랑 램프 — 진할수록 교체가 잦은 자리.<br>다크 모드는 같은 램프를 다크 서피스에서 재검증해 조정</td></tr>
+<tr><td>2</td><td><span class="swatch" style="background:#5598e7"></span><code>#5598e7</code></td></tr>
+<tr><td>3</td><td><span class="swatch" style="background:#2a78d6"></span><code>#2a78d6</code></td></tr>
+<tr><td>4</td><td><span class="swatch" style="background:#1c5cab"></span><code>#1c5cab</code></td></tr>
+<tr><td>5+</td><td><span class="swatch" style="background:#104281"></span><code>#104281</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>마커 안에 교체 수 숫자를 흰색으로 표기 (색만으로 구분하지 않는다 — 접근성).</li>
+<li><code>confidence == "low"</code>(층 미상) → 불투명도 50%. "이 자리 정보는 층 구분이 없어 덜 정확함"의 시각 신호.</li>
+<li><code>is_occupied == false</code>(공실 후보) → 테두리 점선. MVP에서 지도 필터는 없고 표시만.</li>
+</ul>
+
+<h3>지역 마커</h3>
+<p>원형 배지: 큰 숫자 = 평균 교체 수(소수 1자리), 작은 글씨 = 지역명. 탭하면 그 지역으로 줌인(카메라 이동)만 한다 — 상세 화면은 자리 전용.</p>
+
+<h2>6. 오프라인·에러 UX (D4 온라인 전용의 대가)</h2>
+<ul>
+<li>첫 로딩 실패(네트워크 없음) → 전면 안내: "인터넷 연결이 필요한 앱입니다" + 재시도 버튼.</li>
+<li>지도 조작 중 일시 실패 → 기존 마커를 지우지 않고 상단에 얇은 배너 + 자동 재시도 1회.</li>
+<li>Supabase 무료 티어 pause 상태(개발 중 자주 겪는다)도 같은 경로로 떨어진다 — 에러 문구에 원인 추정을 넣지 말고 중립적으로.</li>
+</ul>
+
+<h2>7. 이 phase에서 하지 않는 것</h2>
+<ul>
+<li>자리 탭 → 상세 바텀시트: Phase 4. (이 phase에서 자리 마커 탭은 아무 동작 없어도 완료 가능.)</li>
+<li>현재 위치 버튼·위치 권한 요청: Phase 4에서 상세와 함께. (Info.plist 문구만 미리 넣어둔다.)</li>
+<li>검색·필터·클러스터링: MVP 범위 밖 (기획서 제외 목록).</li>
+</ul>
+
+<div class="nav">
+<span>← <a href="phase-2-스키마-ETL.html">Phase 2 — 스키마 + ETL</a></span>
+<span><a href="phase-4-연대기-상세.html">Phase 4 — 연대기 상세</a> →</span>
+</div>
+
+</article>
+</body>
+</html>

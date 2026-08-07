@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>이 자리 — 구현 플랜 개요</title>
+<meta name="description" content="이 자리 앱 구현 플랜의 총괄 문서. 아키텍처, 확정 결정 기록, 데이터 스키마, phase 지도.">
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#24292f;--muted:#6b7280;--border:#e5e7eb;--code-bg:#f6f8fa;--link:#0969da;--accent:#0969da;--note-bg:#f6f8fa;--warn-bg:#fff8e6;--warn-br:#eda100;--gate:#d03b3b}
+@media (prefers-color-scheme:dark){:root{--bg:#1e1e1e;--fg:#e6e6e6;--muted:#9aa0a6;--border:#3a3a3a;--code-bg:#2a2a2a;--link:#6cb6ff;--accent:#6cb6ff;--note-bg:#262626;--warn-bg:#2e2716;--warn-br:#c98500;--gate:#f47067}}
+*{box-sizing:border-box}
+body{max-width:860px;margin:0 auto;padding:2rem 1.2rem;background:var(--bg);color:var(--fg);font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;line-height:1.75;word-break:keep-all}
+h1{font-size:1.7rem;line-height:1.35;margin:0 0 .5rem}
+h2{margin-top:2.6rem;padding-bottom:.3rem;border-bottom:1px solid var(--border)}
+h3{margin-top:1.8rem}
+p,li{font-size:1rem}
+a{color:var(--link)}
+.subtitle{color:var(--muted);margin-top:0}
+.meta{color:var(--muted);font-size:.85rem;border-bottom:1px solid var(--border);padding-bottom:1rem}
+pre{background:var(--code-bg);padding:1rem;border-radius:8px;overflow-x:auto;font-size:.85rem;line-height:1.55}
+code:not(pre code){background:var(--code-bg);padding:.12em .35em;border-radius:4px;font-size:.88em}
+table{border-collapse:collapse;width:100%;display:block;overflow-x:auto;font-size:.93rem}
+th,td{border:1px solid var(--border);padding:.45rem .7rem;text-align:left;vertical-align:top}
+th{background:var(--note-bg);white-space:nowrap}
+blockquote{margin:1.5rem 0;padding:.7rem 1rem;border-left:4px solid var(--accent);background:var(--note-bg);border-radius:0 6px 6px 0}
+blockquote.warn{border-left-color:var(--warn-br);background:var(--warn-bg)}
+.tldr{background:var(--note-bg);border-radius:8px;padding:1rem 1.2rem}
+figure{margin:2rem 0;text-align:center}
+figure svg{max-width:100%;height:auto}
+figcaption{font-size:.85rem;color:var(--muted);margin-top:.5rem}
+</style>
+</head>
+<body>
+<article>
+
+<h1>이 자리 — 구현 플랜 개요</h1>
+<p class="subtitle">기획서(<code>../index.html</code>)를 실제로 만드는 실행 계획의 총괄 문서</p>
+<p class="meta">2026-08-07 작성 · phase 상세는 개별 문서로 분리 · 진행 체크는 <code>tasks.md</code></p>
+
+<div class="tldr">
+<p><strong>세 줄 요약</strong></p>
+<ul>
+<li>백엔드는 <strong>Supabase Postgres + PostGIS</strong>. 앱이 supabase-swift로 직접 질의하고, 쓰기는 로컬 ETL만 한다. 기획 원안의 "SQLite 조각 정적 배포"는 폐기했다.</li>
+<li>phase는 7개(0~6). <strong>각 phase가 끝나면 반드시 눈으로 보거나 직접 실행해서 확인할 수 있는 산출물</strong>이 나온다.</li>
+<li>Phase 1의 "아는 자리 20곳 중 15곳 일치" 게이트를 통과하지 못하면 이후 phase는 진행하지 않는다.</li>
+</ul>
+</div>
+
+<h2>1. 확정 결정 기록</h2>
+
+<p>플랜을 짜기 전에 확정한 결정들이다. 이후 phase 문서는 전부 이 표를 전제로 쓴다.</p>
+
+<table>
+<thead><tr><th>#</th><th>결정</th><th>선택</th><th>근거</th></tr></thead>
+<tbody>
+<tr><td>D1</td><td>백엔드 구조</td><td><strong>Supabase Postgres 직접 질의</strong></td><td>앱이 supabase-swift로 화면 영역을 바로 질의. 항상 최신 데이터, 앱 로직 최소. 로컬 DB(GRDB)와 SQLite 배포는 쓰지 않는다.</td></tr>
+<tr><td>D2</td><td>줌아웃 집계</td><td><strong>사전 집계 테이블</strong></td><td>ETL에서 시도·시군구·행정동 통계를 미리 계산해 <code>region_stats</code>로 적재. 실시간 GROUP BY보다 빠르고 비용 예측이 쉽다.</td></tr>
+<tr><td>D3</td><td>ETL 실행</td><td><strong>로컬 수동, 자동화는 Phase 6</strong></td><td>분기 1회라 노트북 실행으로 충분하고 결과를 눈으로 검증할 수 있다. GitHub Actions는 마지막에 붙인다.</td></tr>
+<tr><td>D4</td><td>오프라인</td><td><strong>온라인 전용</strong></td><td>MVP는 네트워크 필수. 조회 결과만 메모리 캐시. 오프라인은 후속 과제로만 기록.</td></tr>
+<tr><td>D5</td><td>적재 범위</td><td><strong>무료 티어 + 서울 먼저</strong></td><td>서울(추정 100~150MB)로 Phase 4까지 완주하고, Phase 5에서 실측 용량을 보고 Pro($25/월) 전환을 결정한다.</td></tr>
+<tr><td>D6</td><td>iOS 구성</td><td><strong>iOS 17+ / XcodeGen</strong></td><td>TeslaSync와 같은 방식 — <code>project.yml</code>로 생성, <code>.xcodeproj</code>는 커밋하지 않음. supabase-swift v2, MapKit SwiftUI.</td></tr>
+<tr><td>D7</td><td>보안 경계</td><td><strong>anon key + 읽기 전용 RLS</strong></td><td>anon key는 앱에 넣어도 되는 공개 키다. 모든 테이블에 RLS를 켜고 select 정책만 준다. 쓰기는 로컬 ETL의 service_role 키로만.</td></tr>
+<tr><td>D8</td><td>분기 갱신 방식</td><td><strong>단일 트랜잭션 truncate + COPY</strong></td><td>Postgres MVCC 덕에 트랜잭션이 커밋되기 전까지 앱은 이전 데이터를 그대로 본다. 별도 스테이징 스왑 없이도 원자적 교체가 된다.</td></tr>
+<tr><td>D9</td><td>다점포 층 처리</td><td><strong>자리 = 건물관리번호#층 유지, 교체 수는 min(소멸, 신규)</strong></td><td>호정보가 100% 결측이라 층보다 잘게 못 나눈다. 한 층에 점포가 여럿이면 상세 화면 문구를 "이 층 점포 N곳 · 교체 M번"으로 바꿔 정직하게 표현한다. Phase 1 게이트에서 이 규칙이 체감상 맞는지 함께 검증한다.</td></tr>
+<tr><td>D10</td><td>식별자 표기</td><td><strong>DB·코드는 영어 snake_case</strong></td><td>Postgres·Swift에서 한글 식별자는 고통이다. 주석만 한국어.</td></tr>
+</tbody>
+</table>
+
+<h2>2. 아키텍처</h2>
+
+<figure>
+<svg viewBox="0 0 760 300" role="img" aria-label="전체 아키텍처: 로컬 ETL이 Supabase에 적재하고 iOS 앱이 읽기 전용으로 질의" font-size="12">
+<text x="130" y="24" text-anchor="middle" fill="var(--muted)" font-size="11">분기 1회 · 수동 (Phase 6에서 GHA로)</text>
+<rect x="20" y="36" width="220" height="210" rx="10" fill="none" stroke="var(--border)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="130" y="60" text-anchor="middle" fill="var(--fg)" font-weight="700">로컬 ETL (Python + DuckDB)</text>
+<rect x="38" y="76" width="184" height="28" rx="6" fill="var(--note-bg)" stroke="var(--border)"/>
+<text x="130" y="95" text-anchor="middle" fill="var(--fg)" font-size="11">분기 CSV 내려받기</text>
+<rect x="38" y="112" width="184" height="28" rx="6" fill="var(--note-bg)" stroke="var(--border)"/>
+<text x="130" y="131" text-anchor="middle" fill="var(--fg)" font-size="11">정규화 · 자리 키 · 교체 판정</text>
+<rect x="38" y="148" width="184" height="28" rx="6" fill="var(--note-bg)" stroke="var(--border)"/>
+<text x="130" y="167" text-anchor="middle" fill="var(--fg)" font-size="11">시도·시군구·행정동 집계</text>
+<rect x="38" y="184" width="184" height="28" rx="6" fill="var(--note-bg)" stroke="var(--border)"/>
+<text x="130" y="203" text-anchor="middle" fill="var(--fg)" font-size="11">COPY 적재 (service_role)</text>
+<text x="130" y="236" text-anchor="middle" fill="var(--muted)" font-size="10.5">쓰기 권한은 여기만 갖는다</text>
+
+<path d="M245 198 H300" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#a)"/>
+<text x="272" y="190" text-anchor="middle" fill="var(--muted)" font-size="10">session pooler :5432</text>
+
+<rect x="305" y="70" width="230" height="180" rx="10" fill="none" stroke="var(--accent)" stroke-width="2"/>
+<text x="420" y="96" text-anchor="middle" fill="var(--fg)" font-weight="700">Supabase (Seoul 리전)</text>
+<rect x="322" y="110" width="196" height="28" rx="6" fill="var(--note-bg)" stroke="var(--border)"/>
+<text x="420" y="129" text-anchor="middle" fill="var(--fg)" font-size="11">Postgres + PostGIS</text>
+<rect x="322" y="146" width="196" height="28" rx="6" fill="var(--note-bg)" stroke="var(--border)"/>
+<text x="420" y="165" text-anchor="middle" fill="var(--fg)" font-size="11">places · place_history · region_stats</text>
+<rect x="322" y="182" width="196" height="28" rx="6" fill="var(--note-bg)" stroke="var(--border)"/>
+<text x="420" y="201" text-anchor="middle" fill="var(--fg)" font-size="11">RPC 3종 + 읽기 전용 RLS</text>
+<text x="420" y="236" text-anchor="middle" fill="var(--muted)" font-size="10.5">무료 티어 → Phase 5에서 Pro 게이트</text>
+
+<path d="M600 160 H540" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#a)"/>
+<text x="570" y="150" text-anchor="middle" fill="var(--muted)" font-size="10">anon key · 읽기만</text>
+
+<rect x="605" y="110" width="135" height="100" rx="10" fill="none" stroke="var(--border)" stroke-width="1.5"/>
+<text x="672" y="140" text-anchor="middle" fill="var(--fg)" font-weight="700">iOS 앱</text>
+<text x="672" y="162" text-anchor="middle" fill="var(--muted)" font-size="10.5">SwiftUI + MapKit</text>
+<text x="672" y="180" text-anchor="middle" fill="var(--muted)" font-size="10.5">supabase-swift v2</text>
+<text x="672" y="198" text-anchor="middle" fill="var(--muted)" font-size="10.5">로컬 DB 없음</text>
+
+<defs><marker id="a" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0 0 L8 3 L0 6 z" fill="var(--muted)"/></marker></defs>
+</svg>
+<figcaption>그림 1. 전체 구조 — 쓰기 경로(ETL)와 읽기 경로(앱)가 완전히 분리된다. 출처: 직접 작성</figcaption>
+</figure>
+
+<p>핵심은 역할 분리다. 무거운 계산(분기 대조·교체 판정·집계)은 전부 로컬 ETL이 미리 끝내고, Supabase에는 <strong>완성된 결과만</strong> 들어간다. 앱은 그 결과를 읽기만 한다. 그래서 서버에서 도는 커스텀 코드가 없고, 분기 갱신은 ETL을 다시 돌리는 것으로 끝난다.</p>
+
+<h2>3. 데이터 스키마</h2>
+
+<p>테이블은 4개다. 전체 DDL·인덱스·RLS·RPC 원문은 <a href="phase-2-스키마-ETL.html">Phase 2 문서</a>에 있다.</p>
+
+<figure>
+<svg viewBox="0 0 760 330" role="img" aria-label="테이블 4개의 관계도" font-size="12">
+<rect x="30" y="30" width="300" height="205" rx="8" fill="none" stroke="var(--accent)" stroke-width="2"/>
+<text x="180" y="54" text-anchor="middle" fill="var(--fg)" font-weight="700">places — 자리</text>
+<line x1="45" y1="64" x2="315" y2="64" stroke="var(--border)"/>
+<text x="45" y="86" fill="var(--fg)" font-size="11">place_key  <tspan fill="var(--muted)">PK · 건물관리번호#층</tspan></text>
+<text x="45" y="106" fill="var(--fg)" font-size="11">road_address · floor_label · lat/lng · geom</text>
+<text x="45" y="126" fill="var(--fg)" font-size="11">sido/sigungu/dong_code  <tspan fill="var(--muted)">집계 연결키</tspan></text>
+<text x="45" y="146" fill="var(--fg)" font-size="11">turnover_count  <tspan fill="var(--muted)">지도 색상의 원천</tspan></text>
+<text x="45" y="166" fill="var(--fg)" font-size="11">avg_tenure_months · confidence(high/low)</text>
+<text x="45" y="186" fill="var(--fg)" font-size="11">stores_current · is_occupied</text>
+<text x="45" y="206" fill="var(--fg)" font-size="11">current_category_* · first/last_quarter</text>
+<text x="45" y="226" fill="var(--muted)" font-size="10.5">GiST(geom) 공간 인덱스</text>
+
+<rect x="430" y="30" width="300" height="120" rx="8" fill="none" stroke="var(--border)" stroke-width="1.5"/>
+<text x="580" y="54" text-anchor="middle" fill="var(--fg)" font-weight="700">place_history — 자리 연대기</text>
+<line x1="445" y1="64" x2="715" y2="64" stroke="var(--border)"/>
+<text x="445" y="86" fill="var(--fg)" font-size="11">place_key + seq  <tspan fill="var(--muted)">PK · FK→places</tspan></text>
+<text x="445" y="106" fill="var(--fg)" font-size="11">start_quarter · end_quarter(null=영업 중)</text>
+<text x="445" y="126" fill="var(--fg)" font-size="11">category_code/name  <tspan fill="var(--muted)">상호명은 없다</tspan></text>
+<text x="445" y="143" fill="var(--fg)" font-size="11">tenure_quarters</text>
+<path d="M330 90 H430" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#b)"/>
+<text x="380" y="82" text-anchor="middle" fill="var(--muted)" font-size="10">1 : N</text>
+
+<rect x="430" y="180" width="300" height="120" rx="8" fill="none" stroke="var(--border)" stroke-width="1.5"/>
+<text x="580" y="204" text-anchor="middle" fill="var(--fg)" font-weight="700">region_stats — 사전 집계</text>
+<line x1="445" y1="214" x2="715" y2="214" stroke="var(--border)"/>
+<text x="445" y="236" fill="var(--fg)" font-size="11">region_level(sido/sigungu/dong) + region_code  <tspan fill="var(--muted)">PK</tspan></text>
+<text x="445" y="256" fill="var(--fg)" font-size="11">region_name · center_lat/lng</text>
+<text x="445" y="276" fill="var(--fg)" font-size="11">place_count · turnover_sum/avg · hot_place_count</text>
+<text x="445" y="293" fill="var(--fg)" font-size="11">avg_tenure_months</text>
+<path d="M330 200 Q380 220 430 240" stroke="var(--muted)" stroke-width="1.5" fill="none" marker-end="url(#b)" stroke-dasharray="4 3"/>
+<text x="368" y="245" text-anchor="middle" fill="var(--muted)" font-size="10">ETL이 집계</text>
+
+<rect x="30" y="260" width="300" height="55" rx="8" fill="none" stroke="var(--border)" stroke-width="1.5"/>
+<text x="180" y="283" text-anchor="middle" fill="var(--fg)" font-weight="700" font-size="12">app_meta — 메타</text>
+<text x="180" y="303" text-anchor="middle" fill="var(--fg)" font-size="11">latest_quarter · coverage · data_version</text>
+
+<defs><marker id="b" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0 0 L8 3 L0 6 z" fill="var(--muted)"/></marker></defs>
+</svg>
+<figcaption>그림 2. 스키마 관계도. 상호명 컬럼은 어떤 테이블에도 없다 — 기획의 "업종만 표시" 결정을 스키마 수준에서 강제한다. 출처: 직접 작성</figcaption>
+</figure>
+
+<p>앱이 호출하는 진입점은 테이블이 아니라 <strong>RPC 함수 3개</strong>다. 테이블 구조가 바뀌어도 함수 시그니처만 지키면 앱은 깨지지 않는다.</p>
+
+<table>
+<thead><tr><th>RPC</th><th>입력</th><th>출력</th><th>쓰는 곳</th></tr></thead>
+<tbody>
+<tr><td><code>map_regions</code></td><td>레벨(sido/sigungu/dong) + 화면 bbox</td><td>region_stats 행들</td><td>줌아웃 지도 마커</td></tr>
+<tr><td><code>map_places</code></td><td>화면 bbox + 상한(기본 500행)</td><td>places 행들 (교체 많은 순)</td><td>줌인 지도 개별 자리</td></tr>
+<tr><td><code>place_detail</code></td><td>place_key</td><td>자리 + 연대기 + 동네 평균 (JSON)</td><td>상세 바텀 시트</td></tr>
+</tbody>
+</table>
+
+<h2>4. Phase 지도</h2>
+
+<p>모든 phase는 "완료를 눈으로 확인하는 방법"이 정의돼 있고, 그 확인을 통과해야 다음으로 간다.</p>
+
+<table>
+<thead><tr><th>Phase</th><th>문서</th><th>내용</th><th>눈으로 확인하는 방법</th><th>예상</th></tr></thead>
+<tbody>
+<tr><td><strong>0</strong></td><td><a href="phase-0-준비.html">준비</a></td><td>Supabase 프로젝트·Python 환경·저장소·데이터 확보</td><td>SQL Editor에서 PostGIS 버전 출력, CSV 행 수 출력</td><td>0.5~1일</td></tr>
+<tr><td><strong>1</strong></td><td><a href="phase-1-데이터-스파이크.html">데이터 스파이크</a></td><td>서울 2개 분기 대조 → 검증 리포트 생성</td><td><strong style="color:var(--gate)">게이트: 아는 자리 20곳 중 15곳 일치. 실패 시 프로젝트 중단</strong></td><td>2~3일</td></tr>
+<tr><td><strong>2</strong></td><td><a href="phase-2-스키마-ETL.html">스키마 + ETL</a></td><td>DDL·RLS·RPC 생성, 서울 14개 분기 전체 적재</td><td>Supabase Studio 검증 쿼리 10종 + curl로 RPC 호출</td><td>3~4일</td></tr>
+<tr><td><strong>3</strong></td><td><a href="phase-3-지도-골격.html">지도 골격</a></td><td>XcodeGen 프로젝트, 3단계 줌 사다리 지도</td><td>실기기에서 서울 지도 탐색, 교체 횟수별 색 확인</td><td>3~4일</td></tr>
+<tr><td><strong>4</strong></td><td><a href="phase-4-연대기-상세.html">연대기 상세</a></td><td>자리 탭 → 바텀 시트 타임라인</td><td>실기기에서 자리를 눌러 "주인이 N번 바뀌었습니다" 확인</td><td>2~3일</td></tr>
+<tr><td><strong>5</strong></td><td><a href="phase-5-전국-확장.html">전국 확장</a></td><td>나머지 16개 시도 적재, 용량·성능 게이트</td><td>전국 아무 곳이나 탐색 + DB 용량·응답 속도 실측치</td><td>2~3일</td></tr>
+<tr><td><strong>6</strong></td><td><a href="phase-6-출시-자동화.html">출시 + 자동화</a></td><td>출처 표시·심사 대응·App Store 제출, GHA 분기 갱신</td><td>TestFlight 설치, GHA 수동 실행 성공</td><td>3~4일</td></tr>
+</tbody>
+</table>
+
+<blockquote class="warn"><p><strong>순서를 건너뛰지 않는다.</strong> 특히 Phase 1 게이트 전에 iOS 코드를 먼저 쓰고 싶어지는 유혹을 경계해야 한다 — 데이터가 틀렸으면 앱은 의미가 없다.</p></blockquote>
+
+<h2>5. 저장소 구조</h2>
+
+<p>새 저장소 하나(모노레포)로 간다. 이름 가칭 <code>ijari</code>, 앱 가칭 "이 자리", 번들 ID 가칭 <code>com.jkpark.ijari</code>.</p>
+
+<pre><code>ijari/
+├── pipeline/               # Python ETL (Phase 1~2, 5)
+│   ├── pyproject.toml      # uv 관리: duckdb, psycopg[binary], python-dotenv
+│   ├── download.py         # 분기 CSV 확보 (URL 매핑 + 수동 폴백)
+│   ├── normalize.py        # 컬럼 표준화 · 자리 키 · 상호 정규화
+│   ├── timeline.py         # 점포 수명 연결 · ID 재발급 병합 · 교체 판정
+│   ├── aggregate.py        # places · region_stats 계산
+│   ├── load.py             # Supabase COPY 적재 (단일 트랜잭션)
+│   ├── verify.py           # 적재 후 검증 쿼리 일괄 실행
+│   └── run.py              # 전체 실행 CLI: python run.py --quarters 2023Q1..최신 --sido 서울
+├── supabase/
+│   ├── schema.sql          # DDL + 인덱스 (Phase 2)
+│   ├── policies.sql        # RLS
+│   └── functions.sql       # RPC 3종
+├── ios/
+│   ├── project.yml         # XcodeGen — .xcodeproj는 커밋 안 함
+│   └── Ijari/              # 앱 소스 (Phase 3~4)
+├── data/                   # .gitignore — raw CSV, 분기별 보관
+│   └── raw/2023Q1/…
+└── docs/                   # 이 플랜 문서의 사본 또는 링크
+</code></pre>
+
+<h2>6. 기획서 리스크 → 플랜 대응</h2>
+
+<table>
+<thead><tr><th>기획서 리스크</th><th>어느 phase에서 어떻게</th></tr></thead>
+<tbody>
+<tr><td>"교체 = 망했다"가 아니다</td><td>Phase 4 — 문구를 "주인이 바뀌었습니다"로 고정, 상호명은 스키마에서부터 배제</td></tr>
+<tr><td>데이터가 최대 6개월 늦다</td><td>Phase 4 — <code>app_meta.latest_quarter</code>를 화면에 상시 표시</td></tr>
+<tr><td>층정보 절반 결측</td><td>Phase 2 판정 로직 + Phase 4 — <code>confidence='low'</code> 자리는 흐린 마커·보조 문구</td></tr>
+<tr><td>검증 표본이 세종시뿐</td><td>Phase 1 — 서울 20곳 게이트가 바로 그 재검증</td></tr>
+<tr><td>과거 아카이브 오염</td><td>Phase 0 — 2023 Q1 이후만 내려받고, 받은 원본은 <code>data/raw/</code>에 영구 보관</td></tr>
+</tbody>
+</table>
+
+<h2>한눈에 보기</h2>
+<div class="tldr">
+<ul>
+<li>구조: 로컬 Python+DuckDB ETL → Supabase Postgres(+PostGIS) → iOS 앱 읽기 전용 질의.</li>
+<li>테이블 4개(places · place_history · region_stats · app_meta), 앱 진입점은 RPC 3개.</li>
+<li>phase 7개, 각각 실행해볼 수 있는 산출물로 끝난다. Phase 1의 20곳 게이트가 최대 관문.</li>
+<li>무료 티어 + 서울로 시작, Phase 5에서 실측 후 Pro 전환 결정.</li>
+<li>진행 상황은 같은 폴더의 <code>tasks.md</code>에 체크한다.</li>
+</ul>
+</div>
+
+</article>
+</body>
+</html>

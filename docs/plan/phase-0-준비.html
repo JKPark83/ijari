@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 0 — 준비: 계정·환경·데이터 확보</title>
+<meta name="description" content="이 자리 앱 Phase 0. Supabase 프로젝트, Python 환경, 저장소, 분기 CSV 확보.">
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#24292f;--muted:#6b7280;--border:#e5e7eb;--code-bg:#f6f8fa;--link:#0969da;--accent:#0969da;--note-bg:#f6f8fa;--warn-bg:#fff8e6;--warn-br:#eda100;--gate:#d03b3b}
+@media (prefers-color-scheme:dark){:root{--bg:#1e1e1e;--fg:#e6e6e6;--muted:#9aa0a6;--border:#3a3a3a;--code-bg:#2a2a2a;--link:#6cb6ff;--accent:#6cb6ff;--note-bg:#262626;--warn-bg:#2e2716;--warn-br:#c98500;--gate:#f47067}}
+*{box-sizing:border-box}
+body{max-width:860px;margin:0 auto;padding:2rem 1.2rem;background:var(--bg);color:var(--fg);font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;line-height:1.75;word-break:keep-all}
+h1{font-size:1.7rem;line-height:1.35;margin:0 0 .5rem}
+h2{margin-top:2.6rem;padding-bottom:.3rem;border-bottom:1px solid var(--border)}
+h3{margin-top:1.8rem}
+p,li{font-size:1rem}
+a{color:var(--link)}
+.subtitle{color:var(--muted);margin-top:0}
+.meta{color:var(--muted);font-size:.85rem;border-bottom:1px solid var(--border);padding-bottom:1rem}
+pre{background:var(--code-bg);padding:1rem;border-radius:8px;overflow-x:auto;font-size:.85rem;line-height:1.55}
+code:not(pre code){background:var(--code-bg);padding:.12em .35em;border-radius:4px;font-size:.88em}
+table{border-collapse:collapse;width:100%;display:block;overflow-x:auto;font-size:.93rem}
+th,td{border:1px solid var(--border);padding:.45rem .7rem;text-align:left;vertical-align:top}
+th{background:var(--note-bg);white-space:nowrap}
+blockquote{margin:1.5rem 0;padding:.7rem 1rem;border-left:4px solid var(--accent);background:var(--note-bg);border-radius:0 6px 6px 0}
+blockquote.warn{border-left-color:var(--warn-br);background:var(--warn-bg)}
+.done{background:var(--note-bg);border:1px solid var(--border);border-radius:8px;padding:1rem 1.2rem;margin:1.5rem 0}
+.done p:first-child{margin-top:0}
+.nav{display:flex;justify-content:space-between;margin-top:2.5rem;border-top:1px solid var(--border);padding-top:1rem;font-size:.92rem}
+</style>
+</head>
+<body>
+<article>
+
+<h1>Phase 0 — 준비: 계정·환경·데이터 확보</h1>
+<p class="subtitle">코드를 한 줄도 쓰기 전에, 이후 모든 phase가 딛고 설 바닥을 깐다</p>
+<p class="meta">선행 조건: 없음 · 예상 0.5~1일 · 다음: <a href="phase-1-데이터-스파이크.html">Phase 1 데이터 스파이크</a></p>
+
+<div class="done">
+<p><strong>✅ 완료 판정 — 아래 4가지를 직접 실행해 확인한다</strong></p>
+<ol>
+<li>Supabase SQL Editor에서 <code>select postgis_full_version();</code>이 버전 문자열을 돌려준다.</li>
+<li>터미널에서 <code>uv run python -c "import duckdb, psycopg; print('ok')"</code>가 <code>ok</code>를 찍는다.</li>
+<li><code>data/raw/2023Q1/</code>과 <code>data/raw/{최신분기}/</code>에 서울 CSV가 있고, 행 수 확인 스크립트가 각각 수십만 행을 출력한다.</li>
+<li><code>ijari</code> 저장소에 초기 커밋이 있고 <code>data/</code>는 gitignore로 제외돼 있다.</li>
+</ol>
+</div>
+
+<h2>1. 계정과 결제 — 먼저 정리하고 시작</h2>
+
+<table>
+<thead><tr><th>항목</th><th>필요 시점</th><th>비용</th><th>비고</th></tr></thead>
+<tbody>
+<tr><td>Supabase 계정 + 프로젝트</td><td><strong>지금 (Phase 0)</strong></td><td>무료 티어</td><td>DB 500MB · API 무제한 요청(레이트리밋 있음). Phase 5에서 Pro 게이트.</td></tr>
+<tr><td>Apple Developer Program</td><td>Phase 6 전까지</td><td>연 129,000원($99)</td><td>App Store 제출·TestFlight에 필수. <strong>Phase 3~4 실기기 테스트는 지금의 무료 팀으로 가능</strong>(7일 재서명 감수). 결제는 미루되 Phase 6 시작 전에 가입 완료.</td></tr>
+<tr><td>공공데이터포털 계정</td><td>불필요할 수 있음</td><td>무료</td><td>상가정보 파일데이터는 로그인 없이 받은 전례가 있음. 안 되면 계정 생성(즉시).</td></tr>
+</tbody>
+</table>
+
+<h2>2. Supabase 프로젝트 생성</h2>
+
+<ol>
+<li>조직/프로젝트 생성 — 리전은 반드시 <strong>Northeast Asia (Seoul)</strong>. 사용자와 데이터가 전부 한국이다.</li>
+<li>DB 비밀번호는 생성 직후 비밀번호 관리자에 보관. (분실 시 리셋 가능하지만 연결 문자열이 바뀐다.)</li>
+<li>SQL Editor에서 PostGIS 활성화:
+<pre><code class="language-sql">create extension if not exists postgis;
+select postgis_full_version();   -- 완료 판정 1번</code></pre></li>
+<li>키 3종을 구분해서 보관한다:
+<table>
+<thead><tr><th>키</th><th>성격</th><th>두는 곳</th></tr></thead>
+<tbody>
+<tr><td><code>anon</code> key</td><td>공개 키. RLS가 지켜준다는 전제로 앱에 넣는다</td><td>Phase 3에서 iOS 코드 상수로</td></tr>
+<tr><td><code>service_role</code> key</td><td>RLS를 무시하는 관리자 키. <strong>유출 = DB 전체 노출</strong></td><td>로컬 <code>pipeline/.env</code>만. 절대 커밋 금지</td></tr>
+<tr><td>DB 연결 문자열</td><td>ETL의 COPY 적재용</td><td><code>pipeline/.env</code>의 <code>SUPABASE_DB_URL</code></td></tr>
+</tbody>
+</table></li>
+<li>쓰지 않는 기능은 꺼둔다: Authentication 프로바이더 전부 비활성(익명 앱), Realtime 비활성.</li>
+</ol>
+
+<blockquote class="warn"><p><strong>DB 연결 문자열은 "Session pooler" (포트 5432)를 쓴다.</strong> 프로젝트 대시보드 Connect 화면에서 Direct connection이 아니라 Session pooler 문자열을 복사할 것. Direct 주소(<code>db.*.supabase.co</code>)는 IPv6 전용이라 IPv4만 되는 집 회선에서는 붙지 않는 함정이 있다. COPY·트랜잭션 모두 session 모드에서 정상 동작한다.</p></blockquote>
+
+<blockquote class="warn"><p><strong>무료 티어는 1주일 동안 요청이 없으면 프로젝트가 일시정지(pause)된다.</strong> 개발 공백기가 생기면 대시보드에서 수동 재개해야 한다. 앱이 갑자기 안 붙으면 십중팔구 이것부터 확인.</p></blockquote>
+
+<h2>3. 저장소와 Python 환경</h2>
+
+<pre><code class="language-bash">mkdir ijari && cd ijari && git init
+mkdir -p pipeline supabase ios data/raw docs
+printf 'data/\n.env\n*.xcodeproj\n' &gt; .gitignore
+
+# Python — uv로 관리
+cd pipeline
+uv init --no-workspace && uv add duckdb "psycopg[binary]" python-dotenv
+uv run python -c "import duckdb, psycopg; print('ok')"   # 완료 판정 2번</code></pre>
+
+<p><code>pipeline/.env</code> 골격 (커밋 금지 — <code>.env.example</code>만 커밋):</p>
+<pre><code>SUPABASE_DB_URL=postgresql://postgres.{ref}:{password}@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres
+SUPABASE_URL=https://{ref}.supabase.co
+SUPABASE_SERVICE_ROLE_KEY={service_role}</code></pre>
+
+<h2>4. 분기 CSV 확보</h2>
+
+<p>공공데이터포털 "소상공인시장진흥공단_상가(상권)정보" 파일데이터 페이지의 <strong>"주기성 과거 데이터"</strong> 섹션에서 받는다. 기획서 검증 결과대로 <strong>2023 Q1(2023-03-31 기준) 이전 파일은 오염돼 있으므로 받지 않는다.</strong></p>
+
+<ol>
+<li>지금 필요한 것: <strong>2023Q1 서울 + 최신 분기 서울</strong> 두 개 (Phase 1 스파이크용). 나머지 분기는 Phase 2에서, 타 시도는 Phase 5에서 추가로 받는다.</li>
+<li>전국 zip을 받아 서울 CSV만 꺼내는 형태일 수 있다 — 어느 쪽이든 <code>data/raw/{분기}/</code>에 원본 그대로 넣는다.</li>
+<li>폴더 규약: <code>data/raw/2023Q1/소상공인시장진흥공단_상가(상권)정보_서울_202303.csv</code> 처럼 <strong>분기 폴더 아래 원본 파일명 유지</strong>.</li>
+<li><code>download.py</code>는 이 시점엔 "URL 매핑 테이블 + 없으면 수동 다운로드 안내"만 있으면 된다. 포털의 파일별 고유 URL을 확보할 때마다 매핑에 추가한다.</li>
+<li>받은 파일은 지우지 않는다 — <strong>포털 아카이브를 신뢰하지 않는 것</strong>이 기획의 결론이므로, <code>data/raw/</code>가 우리의 원본 보관소다. (git 제외, 필요하면 외장/클라우드 백업.)</li>
+</ol>
+
+<p>행 수·인코딩 확인 (완료 판정 3번):</p>
+<pre><code class="language-bash">file data/raw/2023Q1/*.csv          # 인코딩 확인: UTF-8인지 CP949인지
+uv run python - &lt;&lt;'EOF'
+import duckdb
+for q in ("2023Q1",):  # 최신 분기도 같이
+    n = duckdb.sql(f"select count(*) from read_csv_auto('data/raw/{q}/*.csv')").fetchone()[0]
+    print(q, f"{n:,}행")
+EOF</code></pre>
+
+<blockquote><p>인코딩이 CP949로 나오면 <code>read_csv_auto(..., encoding='cp949')</code>가 아니라(DuckDB 미지원) <code>iconv -f cp949 -t utf-8</code>로 변환본을 만들어 쓴다. 변환본은 <code>data/utf8/{분기}/</code>에 두고 원본은 건드리지 않는다.</p></blockquote>
+
+<h2>5. 이 phase에서 하지 않는 것</h2>
+<ul>
+<li>스키마 생성 — Phase 2에서. (스파이크 결과가 스키마를 바꿀 수 있다.)</li>
+<li>Xcode 프로젝트 생성 — Phase 3에서. (게이트 통과 전 iOS 작업 금지.)</li>
+<li>2023Q1·최신 외 분기 다운로드 — Phase 2에서 몰아서.</li>
+</ul>
+
+<div class="nav">
+<span>← <a href="plan-overview.html">플랜 개요</a></span>
+<span><a href="phase-1-데이터-스파이크.html">Phase 1 — 데이터 스파이크</a> →</span>
+</div>
+
+</article>
+</body>
+</html>

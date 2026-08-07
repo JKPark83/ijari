@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 2 — Supabase 스키마와 ETL 본편</title>
+<meta name="description" content="이 자리 앱 Phase 2. DDL·RLS·RPC 전체와 서울 14개 분기 ETL 적재.">
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#24292f;--muted:#6b7280;--border:#e5e7eb;--code-bg:#f6f8fa;--link:#0969da;--accent:#0969da;--note-bg:#f6f8fa;--warn-bg:#fff8e6;--warn-br:#eda100;--gate:#d03b3b}
+@media (prefers-color-scheme:dark){:root{--bg:#1e1e1e;--fg:#e6e6e6;--muted:#9aa0a6;--border:#3a3a3a;--code-bg:#2a2a2a;--link:#6cb6ff;--accent:#6cb6ff;--note-bg:#262626;--warn-bg:#2e2716;--warn-br:#c98500;--gate:#f47067}}
+*{box-sizing:border-box}
+body{max-width:860px;margin:0 auto;padding:2rem 1.2rem;background:var(--bg);color:var(--fg);font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;line-height:1.75;word-break:keep-all}
+h1{font-size:1.7rem;line-height:1.35;margin:0 0 .5rem}
+h2{margin-top:2.6rem;padding-bottom:.3rem;border-bottom:1px solid var(--border)}
+h3{margin-top:1.8rem}
+p,li{font-size:1rem}
+a{color:var(--link)}
+.subtitle{color:var(--muted);margin-top:0}
+.meta{color:var(--muted);font-size:.85rem;border-bottom:1px solid var(--border);padding-bottom:1rem}
+pre{background:var(--code-bg);padding:1rem;border-radius:8px;overflow-x:auto;font-size:.85rem;line-height:1.55}
+code:not(pre code){background:var(--code-bg);padding:.12em .35em;border-radius:4px;font-size:.88em}
+table{border-collapse:collapse;width:100%;display:block;overflow-x:auto;font-size:.93rem}
+th,td{border:1px solid var(--border);padding:.45rem .7rem;text-align:left;vertical-align:top}
+th{background:var(--note-bg);white-space:nowrap}
+blockquote{margin:1.5rem 0;padding:.7rem 1rem;border-left:4px solid var(--accent);background:var(--note-bg);border-radius:0 6px 6px 0}
+blockquote.warn{border-left-color:var(--warn-br);background:var(--warn-bg)}
+.done{background:var(--note-bg);border:1px solid var(--border);border-radius:8px;padding:1rem 1.2rem;margin:1.5rem 0}
+.done p:first-child{margin-top:0}
+figure{margin:2rem 0;text-align:center}
+figure svg{max-width:100%;height:auto}
+figcaption{font-size:.85rem;color:var(--muted);margin-top:.5rem}
+.nav{display:flex;justify-content:space-between;margin-top:2.5rem;border-top:1px solid var(--border);padding-top:1rem;font-size:.92rem}
+</style>
+</head>
+<body>
+<article>
+
+<h1>Phase 2 — Supabase 스키마와 ETL 본편</h1>
+<p class="subtitle">스파이크 코드를 재사용 가능한 파이프라인으로 키우고, 서울 14개 분기를 Supabase에 올린다</p>
+<p class="meta">선행: <a href="phase-1-데이터-스파이크.html">Phase 1 게이트 통과</a> · 예상 3~4일 · 다음: <a href="phase-3-지도-골격.html">Phase 3 지도 골격</a></p>
+
+<div class="done">
+<p><strong>✅ 완료 판정</strong></p>
+<ol>
+<li>서울 전 분기(2023Q1~최신, 약 14개)가 적재되고, §6의 검증 쿼리 10종이 전부 기대 범위 안의 값을 돌려준다.</li>
+<li>Supabase Studio Table Editor에서 <code>places</code>를 열어 내가 아는 자리를 검색해 눈으로 확인할 수 있다.</li>
+<li>터미널에서 <code>curl</code>로 RPC 3종을 호출해(anon key) JSON 응답을 받는다.</li>
+<li>anon key로 <code>insert</code>를 시도하면 <strong>거부</strong>된다 (RLS 확인).</li>
+</ol>
+</div>
+
+<h2>1. 작업 순서</h2>
+<ol>
+<li>나머지 분기 CSV 내려받기 (2023Q2 ~ 최신, <code>data/raw/</code> 규약대로)</li>
+<li><code>supabase/schema.sql</code> · <code>policies.sql</code> · <code>functions.sql</code> 작성 → SQL Editor에서 실행</li>
+<li>스파이크 코드를 모듈로 분리: <code>normalize.py</code> → <code>timeline.py</code> → <code>aggregate.py</code> → <code>load.py</code> → <code>verify.py</code>, 오케스트레이션 <code>run.py</code></li>
+<li>서울 적재 실행 → 검증 쿼리 → curl 테스트</li>
+</ol>
+
+<h2>2. DDL — supabase/schema.sql</h2>
+
+<pre><code class="language-sql">create extension if not exists postgis;
+
+-- 자리: 건물관리번호 + 층. 지도에 찍히는 단위
+create table public.places (
+  place_key         text primary key,          -- building_id#floor_label
+  building_id       text not null,
+  floor_label       text not null,             -- '1' / '2' / '미상'
+  road_address      text not null,
+  sido_code         text not null,
+  sigungu_code      text not null,
+  dong_code         text not null,             -- 행정동 코드: dong 집계 연결키
+  lat               double precision not null,
+  lng               double precision not null,
+  geom              geometry(point, 4326)
+                    generated always as (st_setsrid(st_makepoint(lng, lat), 4326)) stored,
+  turnover_count    smallint not null default 0,
+  avg_tenure_months real,                      -- 종료된 점유만 평균. 없으면 null
+  confidence        text not null default 'high' check (confidence in ('high','low')),
+  stores_current    smallint not null default 0,  -- 현재 분기 점포 수. 0 = 공실 후보
+  is_occupied       boolean not null default true,
+  current_category_code text,
+  current_category_name text,
+  first_quarter     text not null,             -- '2023Q1'
+  last_quarter      text not null
+);
+create index places_geom_idx     on public.places using gist (geom);
+create index places_turnover_idx on public.places (turnover_count desc);
+create index places_dong_idx     on public.places (dong_code);
+
+-- 자리 연대기: 논리적 점포(ID 재발급 병합 후) 하나가 한 행
+create table public.place_history (
+  place_key       text not null references public.places on delete cascade,
+  seq             smallint not null,           -- 자리 안 순번 (start_quarter 오름차순)
+  start_quarter   text not null,
+  end_quarter     text,                        -- null = 마지막 분기에도 영업 중
+  category_code   text not null,
+  category_name   text not null,               -- 상호명 컬럼은 의도적으로 없다
+  tenure_quarters smallint,
+  primary key (place_key, seq)
+);
+
+-- 사전 집계: 줌아웃 지도용 (D2)
+create table public.region_stats (
+  region_level      text not null check (region_level in ('sido','sigungu','dong')),
+  region_code       text not null,
+  region_name       text not null,
+  center_lat        double precision not null, -- 소속 자리 좌표 평균
+  center_lng        double precision not null,
+  place_count       integer not null,
+  turnover_sum      integer not null,
+  turnover_avg      real not null,
+  hot_place_count   integer not null,          -- 교체 3회 이상 자리 수
+  avg_tenure_months real,
+  primary key (region_level, region_code)
+);
+create index region_stats_center_idx on public.region_stats (region_level, center_lat, center_lng);
+
+create table public.app_meta (
+  key        text primary key,                 -- latest_quarter / coverage / data_version
+  value      text not null,
+  updated_at timestamptz not null default now()
+);</code></pre>
+
+<h2>3. RLS — supabase/policies.sql</h2>
+
+<pre><code class="language-sql">alter table public.places        enable row level security;
+alter table public.place_history enable row level security;
+alter table public.region_stats  enable row level security;
+alter table public.app_meta      enable row level security;
+
+create policy anon_read_places   on public.places        for select to anon, authenticated using (true);
+create policy anon_read_history  on public.place_history for select to anon, authenticated using (true);
+create policy anon_read_regions  on public.region_stats  for select to anon, authenticated using (true);
+create policy anon_read_meta     on public.app_meta      for select to anon, authenticated using (true);
+
+-- 이중 안전장치: 정책이 없어도 막히지만 권한 자체를 회수해 둔다
+revoke insert, update, delete on all tables in schema public from anon, authenticated;</code></pre>
+
+<h2>4. RPC — supabase/functions.sql</h2>
+
+<pre><code class="language-sql">-- 줌인: 화면 사각형 안의 자리. 교체 많은 순, 상한 필수
+create or replace function public.map_places(
+  min_lng float8, min_lat float8, max_lng float8, max_lat float8,
+  min_turnover int default 0, max_rows int default 500
+) returns setof public.places
+language sql stable as $$
+  select * from public.places
+  where geom && st_makeenvelope(min_lng, min_lat, max_lng, max_lat, 4326)
+    and turnover_count >= min_turnover
+  order by turnover_count desc
+  limit least(greatest(max_rows, 1), 1000);
+$$;
+
+-- 줌아웃: 화면 안의 지역 마커
+create or replace function public.map_regions(
+  p_level text, min_lng float8, min_lat float8, max_lng float8, max_lat float8
+) returns setof public.region_stats
+language sql stable as $$
+  select * from public.region_stats
+  where region_level = p_level
+    and center_lng between min_lng and max_lng
+    and center_lat between min_lat and max_lat;
+$$;
+
+-- 상세: 자리 + 연대기 + 동네 평균 한 번에
+create or replace function public.place_detail(p_key text)
+returns jsonb
+language sql stable as $$
+  select jsonb_build_object(
+    'place', to_jsonb(p),
+    'history', coalesce((select jsonb_agg(to_jsonb(h) order by h.seq)
+                         from public.place_history h where h.place_key = p.place_key), '[]'::jsonb),
+    'dong', (select to_jsonb(r) from public.region_stats r
+             where r.region_level = 'dong' and r.region_code = p.dong_code)
+  )
+  from public.places p where p.place_key = p_key;
+$$;</code></pre>
+
+<blockquote><p>함수는 기본값인 <code>security invoker</code>로 둔다 — 호출자(anon)의 권한으로 실행되므로 RLS가 그대로 적용된다. <code>security definer</code>로 바꾸면 RLS를 우회하니 쓰지 않는다.</p></blockquote>
+
+<h2>5. ETL 알고리즘 — timeline.py의 핵심</h2>
+
+<figure>
+<svg viewBox="0 0 760 150" role="img" aria-label="ETL 다섯 단계 흐름" font-size="12">
+<rect x="10" y="45" width="130" height="56" rx="8" fill="none" stroke="var(--border)" stroke-width="1.5"/>
+<text x="75" y="70" text-anchor="middle" fill="var(--fg)" font-size="11.5">① normalize</text>
+<text x="75" y="88" text-anchor="middle" fill="var(--muted)" font-size="10">분기별 표준화</text>
+<rect x="165" y="45" width="130" height="56" rx="8" fill="none" stroke="var(--border)" stroke-width="1.5"/>
+<text x="230" y="70" text-anchor="middle" fill="var(--fg)" font-size="11.5">② span</text>
+<text x="230" y="88" text-anchor="middle" fill="var(--muted)" font-size="10">점포 수명 연결</text>
+<rect x="320" y="45" width="130" height="56" rx="8" fill="none" stroke="var(--accent)" stroke-width="2"/>
+<text x="385" y="70" text-anchor="middle" fill="var(--fg)" font-size="11.5">③ merge</text>
+<text x="385" y="88" text-anchor="middle" fill="var(--muted)" font-size="10">ID 재발급 병합</text>
+<rect x="475" y="45" width="130" height="56" rx="8" fill="none" stroke="var(--accent)" stroke-width="2"/>
+<text x="540" y="70" text-anchor="middle" fill="var(--fg)" font-size="11.5">④ judge</text>
+<text x="540" y="88" text-anchor="middle" fill="var(--muted)" font-size="10">교체 카운트</text>
+<rect x="630" y="45" width="120" height="56" rx="8" fill="none" stroke="var(--border)" stroke-width="1.5"/>
+<text x="690" y="70" text-anchor="middle" fill="var(--fg)" font-size="11.5">⑤ aggregate</text>
+<text x="690" y="88" text-anchor="middle" fill="var(--muted)" font-size="10">지역 집계</text>
+<path d="M141 73 H164 M296 73 H319 M451 73 H474 M606 73 H629" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#c)"/>
+<defs><marker id="c" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0 0 L8 3 L0 6 z" fill="var(--muted)"/></marker></defs>
+</svg>
+<figcaption>그림 1. ETL 다섯 단계. ③④가 기획서 그림 6의 판정 트리에 해당한다. 출처: 직접 작성</figcaption>
+</figure>
+
+<ol>
+<li><strong>normalize</strong> — 분기별 CSV를 표준 테이블로 (Phase 1 코드 재사용). 좌표 결측·(0,0)인 행은 버리고 버린 수를 로그에 남긴다.</li>
+<li><strong>span</strong> — 점포(store_id)별 등장 분기 목록에서 연속 구간을 만든다. <strong>1개 분기 공백은 이어 붙인다</strong>(같은 ID가 한 분기 빠졌다 돌아오면 데이터 누락으로 간주). 2개 분기 이상 공백은 별도 구간.</li>
+<li><strong>merge (ID 재발급 병합)</strong> — 같은 place_key에서, 구간 A가 분기 t에 끝나고 구간 B가 t+1에 시작하며 <code>name_norm</code>이 같으면 하나의 논리적 점포로 병합. 기획서의 "상호가 같은데 ID만 바뀐 경우 = 재발급, 무시한다"의 구현이다. 2023년 2월 재편(15% ID 교체)이 교체로 잡히는 것을 막는 핵심 단계.</li>
+<li><strong>judge (교체 카운트)</strong> — place_key별·연속 분기쌍(t→t+1)별로:
+<pre><code>ended   = t에 끝난 논리적 점포 수 (병합 후)
+started = t+1에 시작한 논리적 점포 수 (병합 후)
+turnover_events += min(ended, started)      -- D9: 다점포 층 보수적 계산</code></pre>
+공실 판정: 자리의 점포 수가 마지막 두 분기 연속 0이면 <code>is_occupied=false</code>. 마지막 한 분기만 0이면 아직 판단 보류(true 유지, stores_current=0).</li>
+<li><strong>aggregate</strong> — places 행 완성(turnover_count, avg_tenure_months=종료 구간 평균×3개월, confidence=<code>floor_label='미상'→'low'</code>), region_stats를 sido·sigungu·dong 3레벨로 계산.</li>
+</ol>
+
+<h2>6. 적재 — load.py</h2>
+
+<p>D8 결정대로 <strong>단일 트랜잭션 truncate + COPY</strong>. Postgres MVCC 덕에 커밋 전까지 앱은 이전 데이터를 계속 읽는다 — 별도 무중단 장치가 필요 없다.</p>
+
+<pre><code class="language-python">import psycopg, os
+
+def load(csv_paths: dict):   # {"places": Path, "place_history": Path, "region_stats": Path}
+    with psycopg.connect(os.environ["SUPABASE_DB_URL"]) as conn:
+        with conn.transaction():
+            cur = conn.cursor()
+            cur.execute("truncate public.place_history, public.places, public.region_stats")
+            for table in ("places", "place_history", "region_stats"):
+                cols = COLUMNS[table]   # geom 등 generated 컬럼은 제외
+                with open(csv_paths[table]) as f, cur.copy(
+                    f"copy public.{table} ({cols}) from stdin (format csv, header true)"
+                ) as cp:
+                    while data := f.read(1 &lt;&lt; 20):
+                        cp.write(data)
+            cur.execute("""insert into public.app_meta (key, value) values
+                           ('latest_quarter', %s), ('coverage', %s), ('data_version', %s)
+                           on conflict (key) do update
+                           set value = excluded.value, updated_at = now()""",
+                        (latest_quarter, coverage, version))
+    # 커밋 순간 앱이 새 데이터를 보기 시작한다</code></pre>
+
+<blockquote class="warn"><p><code>geom</code>은 generated column이므로 COPY 컬럼 목록에 넣으면 에러다. lat/lng만 넣으면 자동 계산된다. 연결은 Phase 0에서 정한 Session pooler(:5432) 문자열을 쓴다.</p></blockquote>
+
+<h2>7. 검증 쿼리 10종 — verify.py가 실행하고 리포트로 출력</h2>
+
+<table>
+<thead><tr><th>#</th><th>쿼리</th><th>기대</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>select count(*) from places</code></td><td>서울 자리 수십만 단위. 0이거나 수백만이면 자리 키 버그</td></tr>
+<tr><td>2</td><td>turnover_count 분포 (<code>group by</code>)</td><td>0회가 다수, 단조 감소. 특정 값에 비정상 뭉침 없음</td></tr>
+<tr><td>3</td><td>place_history 고아 행 (FK 위반 검사)</td><td>0건</td></tr>
+<tr><td>4</td><td>seq 순서에서 기간 겹침이 아닌 역전(start&gt;end)</td><td>0건</td></tr>
+<tr><td>5</td><td>confidence='low' 비율</td><td>층정보 결측률(≈50%)과 일치</td></tr>
+<tr><td>6</td><td>region_stats(dong) place_count 합 = places 수</td><td>일치</td></tr>
+<tr><td>7</td><td>교체 최다 자리 top 10과 그 주소</td><td>눈으로 봐서 그럴듯한가 (아는 지역이면 직접 대조)</td></tr>
+<tr><td>8</td><td>avg_tenure_months 분포</td><td>3~42개월 범위 안. 음수·0 없음</td></tr>
+<tr><td>9</td><td>Phase 1 게이트 20곳을 place_key로 재조회</td><td>게이트 판정과 동일한 결과</td></tr>
+<tr><td>10</td><td><code>pg_size_pretty(pg_database_size(current_database()))</code></td><td>서울만으로 500MB 미만 (D5 전제 확인)</td></tr>
+</tbody>
+</table>
+
+<h2>8. curl 스모크 테스트 (완료 판정 3·4번)</h2>
+
+<pre><code class="language-bash"># RPC 호출 — 강남 일대 bbox
+curl -s "https://{ref}.supabase.co/rest/v1/rpc/map_places" \
+  -H "apikey: {anon}" -H "Authorization: Bearer {anon}" -H "Content-Type: application/json" \
+  -d '{"min_lng":127.02,"min_lat":37.49,"max_lng":127.06,"max_lat":37.52,"max_rows":10}'
+
+# 쓰기 시도 — 401/403이 나와야 정상 (RLS 확인)
+curl -s -X POST "https://{ref}.supabase.co/rest/v1/places" \
+  -H "apikey: {anon}" -H "Authorization: Bearer {anon}" -H "Content-Type: application/json" \
+  -d '{"place_key":"hack"}'</code></pre>
+
+<h2>9. 함정</h2>
+<ul>
+<li>PostgREST는 응답을 최대 1,000행으로 자른다(Supabase 기본 max-rows). RPC의 limit이 그 아래에 있으므로 문제없지만, 테이블 직접 조회에 의존하지 말 것.</li>
+<li>Supabase는 API 롤에 statement timeout(수 초)을 걸어둔다 — 느린 쿼리는 그냥 실패한다. RPC는 반드시 인덱스를 타는지 <code>explain analyze</code>로 확인.</li>
+<li>분기 라벨은 파일 기준일에서 계산한다(<code>202303 → 2023Q1</code>). 파일명 표기가 분기마다 미묘하게 다를 수 있으니 라벨 변환 함수 하나로 통일.</li>
+</ul>
+
+<div class="nav">
+<span>← <a href="phase-1-데이터-스파이크.html">Phase 1 — 데이터 스파이크</a></span>
+<span><a href="phase-3-지도-골격.html">Phase 3 — 지도 골격</a> →</span>
+</div>
+
+</article>
+</body>
+</html>

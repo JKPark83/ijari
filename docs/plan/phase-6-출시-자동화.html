@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 6 — 출시와 분기 갱신 자동화</title>
+<meta name="description" content="이 자리 앱 Phase 6. 출처 표시·개인정보 정책, App Store 제출, GitHub Actions 분기 갱신.">
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#24292f;--muted:#6b7280;--border:#e5e7eb;--code-bg:#f6f8fa;--link:#0969da;--accent:#0969da;--note-bg:#f6f8fa;--warn-bg:#fff8e6;--warn-br:#eda100;--gate:#d03b3b}
+@media (prefers-color-scheme:dark){:root{--bg:#1e1e1e;--fg:#e6e6e6;--muted:#9aa0a6;--border:#3a3a3a;--code-bg:#2a2a2a;--link:#6cb6ff;--accent:#6cb6ff;--note-bg:#262626;--warn-bg:#2e2716;--warn-br:#c98500;--gate:#f47067}}
+*{box-sizing:border-box}
+body{max-width:860px;margin:0 auto;padding:2rem 1.2rem;background:var(--bg);color:var(--fg);font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;line-height:1.75;word-break:keep-all}
+h1{font-size:1.7rem;line-height:1.35;margin:0 0 .5rem}
+h2{margin-top:2.6rem;padding-bottom:.3rem;border-bottom:1px solid var(--border)}
+h3{margin-top:1.8rem}
+p,li{font-size:1rem}
+a{color:var(--link)}
+.subtitle{color:var(--muted);margin-top:0}
+.meta{color:var(--muted);font-size:.85rem;border-bottom:1px solid var(--border);padding-bottom:1rem}
+pre{background:var(--code-bg);padding:1rem;border-radius:8px;overflow-x:auto;font-size:.85rem;line-height:1.55}
+code:not(pre code){background:var(--code-bg);padding:.12em .35em;border-radius:4px;font-size:.88em}
+table{border-collapse:collapse;width:100%;display:block;overflow-x:auto;font-size:.93rem}
+th,td{border:1px solid var(--border);padding:.45rem .7rem;text-align:left;vertical-align:top}
+th{background:var(--note-bg);white-space:nowrap}
+blockquote{margin:1.5rem 0;padding:.7rem 1rem;border-left:4px solid var(--accent);background:var(--note-bg);border-radius:0 6px 6px 0}
+blockquote.warn{border-left-color:var(--warn-br);background:var(--warn-bg)}
+.done{background:var(--note-bg);border:1px solid var(--border);border-radius:8px;padding:1rem 1.2rem;margin:1.5rem 0}
+.done p:first-child{margin-top:0}
+.nav{display:flex;justify-content:space-between;margin-top:2.5rem;border-top:1px solid var(--border);padding-top:1rem;font-size:.92rem}
+</style>
+</head>
+<body>
+<article>
+
+<h1>Phase 6 — 출시와 분기 갱신 자동화</h1>
+<p class="subtitle">App Store에 올리고, 분기마다 손대지 않아도 데이터가 갱신되는 상태로 마무리한다</p>
+<p class="meta">선행: <a href="phase-5-전국-확장.html">Phase 5</a> + Apple Developer Program 가입 완료 · 예상 3~4일 (심사 대기 별도) · 이 문서가 마지막 phase</p>
+
+<div class="done">
+<p><strong>✅ 완료 판정</strong></p>
+<ol>
+<li>TestFlight 빌드가 내 기기에 설치되고 전 기능이 동작한다.</li>
+<li>App Store 심사 제출이 완료됐다 (승인은 통제 밖이므로 제출까지가 판정 기준).</li>
+<li>GitHub Actions에서 <code>workflow_dispatch</code>로 파이프라인을 수동 실행해 성공했고, 분기 cron이 등록돼 있다.</li>
+<li>출처 표시 화면·개인정보 처리방침이 앱과 심사 메타데이터 양쪽에 들어가 있다.</li>
+</ol>
+</div>
+
+<h2>1. 출시 전 정리 — 법적·정책적 요건</h2>
+
+<table>
+<thead><tr><th>항목</th><th>내용</th></tr></thead>
+<tbody>
+<tr><td>공공누리 출처 표시</td><td>상가(상권)정보는 공공누리 제1유형(출처 표시) — 설정 화면에 "본 앱은 소상공인시장진흥공단 상가(상권)정보(공공데이터포털)를 이용합니다" + 데이터 기준 분기를 표시. 지도 하단 상시 문구(Phase 4)와 별개로 정식 고지 화면을 둔다.</td></tr>
+<tr><td>개인정보 처리방침</td><td>수집하는 개인정보가 없다(계정 없음, 위치는 기기 내 사용·전송 안 함). "수집 항목 없음"을 명시한 정적 페이지 하나를 만들어 URL을 App Store Connect에 등록. GitHub Pages면 충분하다.</td></tr>
+<tr><td>위치 권한 문구</td><td><code>NSLocationWhenInUseUsageDescription</code>: "현재 위치 주변의 자리를 지도에 보여주기 위해 사용합니다." — 심사에서 모호한 문구는 리젝 사유다.</td></tr>
+<tr><td>면책 문구</td><td>온보딩 또는 고지 화면에: 공공데이터 기반 추정 정보이며 실제와 다를 수 있음, 계약·투자 판단의 근거로 쓰지 말 것. 기획서 리스크 대응의 마지막 조각.</td></tr>
+</tbody>
+</table>
+
+<blockquote class="warn"><p>심사 관점 주의: 데이터가 "폐업"을 단정하는 표현으로 보이면 사업자 명예 관련 민원 소지가 있다 — Phase 4의 완곡 표현("비어 있는 것으로 보이는")이 심사·운영 양쪽의 방어선이다. 또 앱 이름 "이 자리"는 App Store 검색성이 낮으므로 부제(subtitle)에 "상가 교체 이력 지도" 같은 설명형 문구를 넣는다.</p></blockquote>
+
+<h2>2. App Store 제출 절차</h2>
+
+<ol>
+<li>Apple Developer Program 가입 반영 후 <code>project.yml</code>의 <code>DEVELOPMENT_TEAM</code>을 유료 팀 ID로 교체 → <code>xcodegen generate</code>.</li>
+<li>앱 아이콘·스크린샷(6.9″/6.5″ 필수 세트) 준비. 스크린샷은 실데이터 화면 — 상호명이 없으므로 모자이크 걱정도 없다.</li>
+<li>App Store Connect에서 앱 생성 (번들 ID <code>com.jkpark.ijari</code>), 연령 등급·카테고리(내비게이션 또는 라이프스타일) 입력.</li>
+<li>Xcode Organizer로 Archive → Distribute → TestFlight 내부 테스트 → 내 기기 설치 확인 (완료 판정 1번).</li>
+<li>심사 제출. 심사원용 노트에 "공공데이터 기반, 로그인 불필요, 위치 권한은 선택" 명시 — 심사원이 헤매지 않게.</li>
+</ol>
+
+<h2>3. 분기 갱신 자동화 — GitHub Actions</h2>
+
+<p>D3 결정의 후반부. 로컬에서 검증된 <code>run.py</code>를 그대로 GHA에서 돌린다. 관건은 코드가 아니라 <strong>비밀 관리와 실패 알림</strong>이다.</p>
+
+<pre><code class="language-yaml"># .github/workflows/quarterly-etl.yml
+name: quarterly-etl
+on:
+  workflow_dispatch:        # 수동 실행 (완료 판정 3번, 그리고 언제든 재적재)
+  schedule:
+    - cron: '0 3 15 1,4,7,10 *'   # 1·4·7·10월 15일 03:00 UTC — 분기 파일 공개 시점 감안
+jobs:
+  etl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Run pipeline
+        working-directory: pipeline
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: uv run python run.py --sido all --download
+      - name: Verify
+        working-directory: pipeline
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: uv run python verify.py --strict   # 검증 실패 = job 실패 = 메일 알림
+</code></pre>
+
+<ul>
+<li>Secrets에는 <code>SUPABASE_DB_URL</code>(Session pooler 문자열) 하나면 된다 — COPY 적재와 검증 모두 DB 직결이라 service_role key조차 필요 없다.</li>
+<li><strong>다운로드 자동화가 최대 불확실성</strong>이다: 포털 파일 URL이 분기마다 규칙적이면 <code>--download</code>로 자동화하고, 불규칙하면 "cron은 알림만, 다운로드·실행은 수동" 모드로 낮춘다. 그래서 cron 날짜를 공개 예상일보다 넉넉히 뒤(15일)로 잡았다. 첫 분기 갱신 때 실제로 겪어보고 확정한다.</li>
+<li>원본 CSV 영구 보관 원칙(Phase 0)은 GHA에서도 유지 — 러너는 휘발성이므로, 다운로드 성공 시 원본을 GitHub Release 자산이나 개인 클라우드에 업로드하는 스텝을 넣는다.</li>
+<li><code>verify.py --strict</code>가 실패하면 적재를 롤백할 필요는 없다 — 트랜잭션이 통째로 실패했거나(옛 데이터 그대로), 적재는 됐지만 품질 미달이거나. 후자는 수동 개입 신호로 충분하다.</li>
+</ul>
+
+<h2>4. 운영 체크리스트 (출시 후 반복)</h2>
+<ul>
+<li>분기마다: GHA 성공 확인 → 앱에서 <code>latest_quarter</code> 갱신 확인 → 용량 추이 기록 (매 분기 이력이 쌓여 용량은 단조 증가한다 — 무료 티어면 언젠가 Phase 5 게이트 재도래).</li>
+<li>Supabase 무료 티어 pause는 실사용자가 있으면 발생하지 않지만, 사용자 0명 구간에서는 발생할 수 있다 — 출시 직후엔 대시보드를 주 1회 확인.</li>
+<li>사용자 피드백 채널: App Store 리뷰 + 설정 화면의 메일 링크 정도로 시작.</li>
+</ul>
+
+<h2>5. MVP 이후 (이 계획의 범위 밖 — 기획서 후속 아이디어)</h2>
+<ul>
+<li>공유 카드(자리 연대기 이미지 내보내기), 업종 필터, 창업 예정자용 "이 업종이 이 동네에서 버틴 기간" 통계, 위젯.</li>
+<li>어느 것이든 <strong>새 plan 문서</strong>로 시작한다 — 이 문서 세트에 덧붙이지 않는다.</li>
+</ul>
+
+<div class="nav">
+<span>← <a href="phase-5-전국-확장.html">Phase 5 — 전국 확장</a></span>
+<span><a href="plan-overview.html">플랜 개요로</a> ↑</span>
+</div>
+
+</article>
+</body>
+</html>
