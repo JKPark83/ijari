@@ -1,11 +1,11 @@
-import MapKit
+import Foundation
 
-/// 줌 사다리 — 경도 폭(longitudeDelta) 기준 (plan-overview D2, 경계값은 잠정치)
+/// 줌 사다리 — 화면에 보이는 경도 폭 기준 (plan-overview D2, 경계값은 잠정치)
 enum MapLevel: Equatable {
     case sido, sigungu, dong, places
 
-    init(span: MKCoordinateSpan) {
-        switch span.longitudeDelta {
+    init(lngDelta: Double) {
+        switch lngDelta {
         case ..<0.08:  self = .places
         case ..<0.35:  self = .dong
         case ..<1.5:   self = .sigungu
@@ -34,14 +34,5 @@ struct BBox: Equatable {
     /// 메모리 캐시 키 — 소수 3자리(~110m)로 반올림해 근접 bbox를 같은 키로 묶는다
     var roundedKey: String {
         String(format: "%.3f,%.3f,%.3f,%.3f", minLng, minLat, maxLng, maxLat)
-    }
-}
-
-extension MKCoordinateRegion {
-    var bbox: BBox {
-        BBox(minLng: center.longitude - span.longitudeDelta / 2,
-             minLat: center.latitude - span.latitudeDelta / 2,
-             maxLng: center.longitude + span.longitudeDelta / 2,
-             maxLat: center.latitude + span.latitudeDelta / 2)
     }
 }

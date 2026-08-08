@@ -7,6 +7,9 @@ packages:
   Supabase:
     url: https://github.com/supabase/supabase-swift
     from: 2.0.0
+  NMapsMap:
+    url: https://github.com/navermaps/SPM-NMapsMap
+    from: 3.17.0
 targets:
   Ijari:
     type: application
@@ -15,12 +18,16 @@ targets:
     dependencies:
       - package: Supabase
         product: Supabase
+      - package: NMapsMap
+        product: NMapsMap
     info:
       path: Ijari/Info.plist
       properties:
         UILaunchScreen: {}
         NSLocationWhenInUseUsageDescription: 현재 위치 주변의 자리를 지도에 보여주기 위해 사용합니다.
         NSLocalNetworkUsageDescription: 같은 네트워크에 있는 로컬 데이터 서버(맥)와 통신하기 위해 사용합니다.
+        # 네이버 지도 인증 — NCP 콘솔의 Key ID (번들 ID로 제한되는 공개 식별자)
+        NMFNcpKeyId: NCP_KEY_ID_PLACEHOLDER
         # 로컬 스택은 http(비 TLS)이고 Tailscale IP(100.x)는 로컬 네트워크로 안 쳐서
         # 전면 예외가 필요하다. NSAllowsLocalNetworking을 같이 두면 iOS 10+가
         # ArbitraryLoads를 무시하므로 단독으로 쓴다. 개발용 — Phase 6에서 재검토.

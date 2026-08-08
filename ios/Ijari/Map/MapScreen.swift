@@ -1,15 +1,20 @@
 import SwiftUI
-import MapKit
+import CoreLocation
 
 /// 지도 골격 — 레벨 전환 + 0.3s 디바운스 + 직전 요청 취소 (phase-3 문서 §4)
 /// + 상세 바텀시트·현재 위치·데이터 기준 상시 표시 (phase-4)
+/// 바탕 지도는 네이버 지도(NMapsMap) — 렌더러만 교체, 데이터 흐름은 MapKit 때와 동일
 struct MapScreen: View {
-    /// 서울 전체 뷰 (Δ0.45 → sigungu 레벨에서 시작)
-    private static let seoulRegion = MKCoordinateRegion(
-        center: CLLocationCoordinate2D(latitude: 37.5519, longitude: 126.9918),
-        span: MKCoordinateSpan(latitudeDelta: 0.45, longitudeDelta: 0.45))
+    /// 서울 전체 뷰 (경도 폭 0.45 → sigungu 레벨에서 시작)
+    private static let seoulLat = 37.5519
+    private static let seoulLng = 126.9918
+    private static let seoulDelta = 0.45
+    private static let seoulBBox = BBox(minLng: seoulLng - seoulDelta / 2,
+                                        minLat: seoulLat - seoulDelta / 2,
+                                        maxLng: seoulLng + seoulDelta / 2,
+                                        maxLat: seoulLat + seoulDelta / 2)
 
-    enum Markers {
+    enum Markers: Equatable {
         case regions([RegionStat])
         case places([Place])
 
@@ -26,11 +31,15 @@ struct MapScreen: View {
         var id: String { key }
     }
 
-    @State private var position: MapCameraPosition = .region(Self.seoulRegion)
+    @State private var camera = CameraCommand(centerLat: MapScreen.seoulLat,
+                                              centerLng: MapScreen.seoulLng,
+                                              lngDelta: MapScreen.seoulDelta,
+                                              animated: false)
     @State private var markers: Markers = .regions([])
     @State private var loadState: LoadState = .idle
     @State private var loadTask: Task<Void, Never>?
-    @State private var lastRegion: MKCoordinateRegion?
+    @State private var lastBBox: BBox?
+    @State private var lastLngDelta: Double?
     @State private var retriedOnce = false
 
     @State private var selectedPlace: SelectedPlace?
@@ -61,14 +70,17 @@ struct MapScreen: View {
         }
         .task {
             meta = try? await client.appMeta()
+            // 초기 카메라 유휴 이벤트를 못 받는 경우 대비 — 서울 전체 뷰로 1회 로드
+            try? await Task.sleep(for: .seconds(0.7))
+            if lastBBox == nil {
+                await load(bbox: Self.seoulBBox, lngDelta: Self.seoulDelta)
+            }
         }
         .onReceive(location.$lastLocation) { coordinate in
             guard let coordinate else { return }
-            withAnimation {
-                position = .region(MKCoordinateRegion(
-                    center: coordinate,
-                    span: MKCoordinateSpan(latitudeDelta: 0.03, longitudeDelta: 0.03)))  // places 레벨
-            }
+            camera = CameraCommand(centerLat: coordinate.latitude,
+                                   centerLng: coordinate.longitude,
+                                   lngDelta: 0.03)  // places 레벨
         }
         .alert("위치 권한이 꺼져 있습니다", isPresented: $showLocationDeniedAlert) {
             Button("설정 열기") {
@@ -83,51 +95,36 @@ struct MapScreen: View {
     }
 
     private var map: some View {
-        Map(position: $position) {
-            switch markers {
-            case .places(let places):
-                ForEach(places) { place in
-                    Annotation("", coordinate: CLLocationCoordinate2D(latitude: place.lat,
-                                                                      longitude: place.lng)) {
-                        PlaceMarker(place: place)
-                            .onTapGesture { selectedPlace = SelectedPlace(key: place.placeKey) }
-                    }
-                }
-            case .regions(let regions):
-                ForEach(regions) { region in
-                    Annotation("", coordinate: CLLocationCoordinate2D(latitude: region.centerLat,
-                                                                      longitude: region.centerLng)) {
-                        RegionMarker(stat: region) { zoomIn(to: region) }
-                    }
-                }
-            }
-        }
-        .onMapCameraChange(frequency: .continuous) { context in
-            onCameraChange(context)
-        }
+        NaverMapView(markers: markers,
+                     camera: camera,
+                     onCameraIdle: onCameraIdle,
+                     onPlaceTap: { selectedPlace = SelectedPlace(key: $0.placeKey) },
+                     onRegionTap: zoomIn)
+            .ignoresSafeArea()
     }
 
     // MARK: - 로딩
 
-    private func onCameraChange(_ context: MapCameraUpdateContext) {
-        lastRegion = context.region
+    private func onCameraIdle(_ bbox: BBox, _ lngDelta: Double) {
+        lastBBox = bbox
+        lastLngDelta = lngDelta
         loadTask?.cancel()                       // 이전 요청 취소
         loadTask = Task {
             try? await Task.sleep(for: .seconds(0.3))   // 디바운스
             guard !Task.isCancelled else { return }
-            await load(region: context.region)
+            await load(bbox: bbox, lngDelta: lngDelta)
         }
     }
 
-    private func load(region: MKCoordinateRegion) async {
-        let level = MapLevel(span: region.span)
+    private func load(bbox: BBox, lngDelta: Double) async {
+        let level = MapLevel(lngDelta: lngDelta)
         loadState = .loading
         do {
             switch level {
             case .places:
-                markers = .places(try await client.mapPlaces(bbox: region.bbox))
+                markers = .places(try await client.mapPlaces(bbox: bbox))
             default:
-                markers = .regions(try await client.mapRegions(level: level, bbox: region.bbox))
+                markers = .regions(try await client.mapRegions(level: level, bbox: bbox))
             }
             loadState = .loaded
             retriedOnce = false
@@ -140,16 +137,17 @@ struct MapScreen: View {
                 retriedOnce = true
                 try? await Task.sleep(for: .seconds(2))
                 guard !Task.isCancelled else { return }
-                await load(region: region)
+                await load(bbox: bbox, lngDelta: lngDelta)
             }
         }
     }
 
     private func retry() {
         retriedOnce = false
-        let region = lastRegion ?? Self.seoulRegion
         loadTask?.cancel()
-        loadTask = Task { await load(region: region) }
+        let bbox = lastBBox ?? Self.seoulBBox
+        let lngDelta = lastLngDelta ?? Self.seoulDelta
+        loadTask = Task { await load(bbox: bbox, lngDelta: lngDelta) }
     }
 
     private func zoomIn(to stat: RegionStat) {
@@ -158,11 +156,9 @@ struct MapScreen: View {
         case "sigungu": 0.15    // → dong
         default:        0.05    // → places
         }
-        withAnimation {
-            position = .region(MKCoordinateRegion(
-                center: CLLocationCoordinate2D(latitude: stat.centerLat, longitude: stat.centerLng),
-                span: MKCoordinateSpan(latitudeDelta: nextDelta, longitudeDelta: nextDelta)))
-        }
+        camera = CameraCommand(centerLat: stat.centerLat,
+                               centerLng: stat.centerLng,
+                               lngDelta: nextDelta)
     }
 
     // MARK: - 현재 위치 (권한 없이도 모든 기능이 동작해야 한다)
