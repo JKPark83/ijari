@@ -10,6 +10,7 @@ services:
   db:
     image: postgis/postgis:16-3.4
     container_name: ijari-db
+    restart: unless-stopped
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ijari
@@ -29,6 +30,7 @@ services:
   postgrest:
     image: postgrest/postgrest:v12.2.12
     container_name: ijari-postgrest
+    restart: unless-stopped
     environment:
       PGRST_DB_URI: postgres://authenticator:${AUTHENTICATOR_PASSWORD}@db:5432/ijari
       PGRST_DB_SCHEMAS: public
@@ -41,6 +43,7 @@ services:
   api:
     image: nginx:1.27-alpine
     container_name: ijari-api
+    restart: unless-stopped
     ports:
       - "8000:80"               # LAN 공개 — 아이폰이 Mac IP:8000으로 접속
     volumes:
