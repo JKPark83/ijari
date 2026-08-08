@@ -37,15 +37,29 @@ blockquote.gate{border-left-color:var(--gate);background:var(--warn-bg)}
 <p class="subtitle">서울에서 검증된 파이프라인을 전국 17개 시도로 넓히고, 무료 티어로 버틸 수 있는지 숫자로 결정한다</p>
 <p class="meta">선행: <a href="phase-4-연대기-상세.html">Phase 4 MVP 완성</a> · 예상 2~3일 · 다음: <a href="phase-6-출시-자동화.html">Phase 6 출시 + 자동화</a></p>
 
+<blockquote class="warn"><p><strong>결정 변경 (2026-08-08)</strong> — 서울만 적재해도 무료 티어(500MB) 중 258MB를 썼고, 전국은 DB 용량이 약 1.2GB로 추정돼 무료 티어를 초과한다. 그래서 §2의 <strong>용량 게이트(450MB 기준 무료/Pro 결정)는 폐기하고, 로컬 self-host 전환(OrbStack self-host, 비용 0원)으로 대체</strong>한다. 이 phase를 시작하기 전에 <strong>로컬 DB 스택 구축(아래 0절)</strong>이 선행 단계로 추가됐다. 배경은 <a href="plan-overview.html">플랜 개요</a> 2절 참고.</p></blockquote>
+
 <div class="done">
 <p><strong>✅ 완료 판정</strong></p>
 <ol>
 <li>전국 17개 시도가 적재되고 검증 쿼리(Phase 2의 10종)가 전국 기준으로 통과한다.</li>
-<li>DB 용량 실측값과 티어 결정(무료 유지 or Pro 전환)이 <code>docs/capacity.md</code>에 기록돼 있다.</li>
+<li>DB 용량 실측값과 티어 결정(무료 유지 또는 Pro 전환)이 <code>docs/capacity.md</code>에 기록돼 있다.</li>
 <li>앱에서 서울 밖(부산·제주 등) 아무 곳이나 줌인해도 자리·연대기가 정상으로 보인다.</li>
 <li>RPC 3종의 <code>explain analyze</code> 결과가 인덱스를 타고, 실기기 체감 로딩이 서울과 다르지 않다.</li>
 </ol>
 </div>
+
+<h2>0. 로컬 DB 스택 구축 — 선행 단계 (결정 변경 2026-08-08)</h2>
+
+<p>전국 확장을 시작하기 전에, 클라우드 Pro 대신 <strong>로컬 self-host 스택</strong>을 먼저 구성한다. Supabase 클라우드(서울 데이터)는 당분간 MVP 검증용으로 유지하고, 전국 데이터는 새 로컬 스택에 적재한다.</p>
+
+<ul>
+<li><strong>컨테이너 스택</strong> — OrbStack(Docker) 위에 PostGIS Postgres + PostgREST + nginx 프록시(<code>/rest/v1</code> 경로를 PostgREST로 매핑) 3개 컨테이너. compose 구성은 저장소 <code>infra/local/</code>에 둔다.</li>
+<li><strong>저장 위치</strong> — DB 데이터는 외장 드라이브 T31에 둔다. T31이 ExFAT 포맷이라 Postgres 데이터 디렉터리를 직접 둘 수 없어, T31 안에 APFS 스파스 이미지(<code>ijari-db.sparsebundle</code>)를 만들어 마운트하고 그 안에 데이터 디렉터리를 둔다. 원본 CSV(약 20GB)는 이미지가 필요 없어 ExFAT에 직접 저장한다(<code>/Volumes/T31/ijari/data</code>).</li>
+<li><strong>앱 전환</strong> — supabase-swift 코드 구조는 그대로 두고 <code>Config</code>의 URL·anon key만 로컬 스택 주소로 교체한다(PostgREST API 표면이 Supabase와 동일해 RPC 3종·RLS 정책은 그대로 재사용). 단 Mac의 LAN IP로 접속하므로 <strong>같은 네트워크에서만 동작</strong>하고, http 평문 통신이라 iOS ATS(App Transport Security) 예외 설정이 필요하다.</li>
+</ul>
+
+<blockquote class="warn"><p>로컬 스택은 외부에서 접근할 수 없다 — 개발 Mac과 같은 네트워크에 있는 기기에서만 앱이 동작한다. App Store 공개 배포 시점의 백엔드 재검토 과제는 <a href="phase-6-출시-자동화.html">Phase 6</a>에 남겨둔다.</p></blockquote>
 
 <h2>1. 확장 시나리오 — 코드 변경은 거의 없어야 정상</h2>
 
@@ -59,7 +73,9 @@ blockquote.gate{border-left-color:var(--gate);background:var(--warn-bg)}
 
 <blockquote class="warn"><p>지역별 파일 분할 방식이 분기마다 다를 수 있다(시도별 zip / 전국 단일 / 파일명 표기 차이). normalize 단계에서 <strong>파일명이 아니라 데이터 안의 시도 코드 컬럼</strong>을 기준으로 처리하면 분할 방식과 무관해진다.</p></blockquote>
 
-<h2>2. 용량 게이트 — D5의 결정 지점</h2>
+<h2>2. 용량 게이트 — D5의 결정 지점 (참고용, 로컬 전환으로 대체됨)</h2>
+
+<p><em>이 절은 Supabase 클라우드를 계속 쓴다는 전제로 짠 원래 게이트 로직이다. 결정 변경(2026-08-08)으로 실제 운영은 로컬 self-host 전환으로 대체됐고, 아래 내용은 판단 배경을 남기기 위한 참고용이다.</em></p>
 
 <pre><code class="language-sql">select pg_size_pretty(pg_database_size(current_database()));
 -- 테이블별 상세
@@ -95,7 +111,7 @@ from pg_catalog.pg_statio_user_tables order by pg_total_relation_size(relid) des
 <ul>
 <li>시도별 건강 체크(Phase 1의 health 측정)를 전국으로 확대해 <strong>시도별 층정보 결측률 표</strong>를 만든다. 특정 시도가 유난히 나쁘면(예: 결측 80%) 그 시도의 confidence 정책을 따로 볼 근거가 된다.</li>
 <li>세종시가 특이 사례였는지도 이때 판명된다 — 기획서의 수치(ID 유지율 등)와 전국 수치를 비교해 <code>docs/capacity.md</code>에 같이 기록.</li>
-<li>좌표가 시도 경계를 크게 벗어나는 행(오입력)은 버리고 카운트를 로그로.</li>
+<li>좌표가 시도 경계를 크게 벗어나는 행(오입력)은 버리고 카운트를 로그로 남긴다.</li>
 </ul>
 
 <h2>5. 이 phase에서 하지 않는 것</h2>

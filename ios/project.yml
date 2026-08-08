@@ -15,10 +15,16 @@ targets:
     dependencies:
       - package: Supabase
         product: Supabase
+    info:
+      path: Ijari/Info.plist
+      properties:
+        UILaunchScreen: {}
+        NSLocationWhenInUseUsageDescription: 현재 위치 주변의 자리를 지도에 보여주기 위해 사용합니다.
+        NSLocalNetworkUsageDescription: 같은 네트워크에 있는 로컬 데이터 서버(맥)와 통신하기 위해 사용합니다.
+        # 로컬 스택은 http(비 TLS)라 ATS 예외가 필요하다 — LAN 한정 허용
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
     settings:
       base:
         DEVELOPMENT_TEAM: WDNVP9B8A9        # 무료 팀. Phase 6에서 유료 팀으로 교체
         PRODUCT_BUNDLE_IDENTIFIER: com.jkpark.ijari
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: 현재 위치 주변의 자리를 지도에 보여주기 위해 사용합니다.

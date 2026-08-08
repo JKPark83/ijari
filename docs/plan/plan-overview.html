@@ -57,7 +57,7 @@ figcaption{font-size:.85rem;color:var(--muted);margin-top:.5rem}
 <tr><td>D2</td><td>줌아웃 집계</td><td><strong>사전 집계 테이블</strong></td><td>ETL에서 시도·시군구·행정동 통계를 미리 계산해 <code>region_stats</code>로 적재. 실시간 GROUP BY보다 빠르고 비용 예측이 쉽다.</td></tr>
 <tr><td>D3</td><td>ETL 실행</td><td><strong>로컬 수동, 자동화는 Phase 6</strong></td><td>분기 1회라 노트북 실행으로 충분하고 결과를 눈으로 검증할 수 있다. GitHub Actions는 마지막에 붙인다.</td></tr>
 <tr><td>D4</td><td>오프라인</td><td><strong>온라인 전용</strong></td><td>MVP는 네트워크 필수. 조회 결과만 메모리 캐시. 오프라인은 후속 과제로만 기록.</td></tr>
-<tr><td>D5</td><td>적재 범위</td><td><strong>무료 티어 + 서울 먼저</strong></td><td>서울(추정 100~150MB)로 Phase 4까지 완주하고, Phase 5에서 실측 용량을 보고 Pro($25/월) 전환을 결정한다.</td></tr>
+<tr><td>D5</td><td>적재 범위</td><td><strong>무료 티어 + 서울 먼저</strong></td><td>서울(추정 100~150MB)로 Phase 4까지 완주하고, Phase 5에서 실측 용량을 보고 Pro($25/월) 전환을 결정한다. <strong>[결정 변경 2026-08-08]</strong> 서울만으로 이미 258MB를 써 전국 적재 시 무료 티어 초과가 확실해졌다. Pro 대신 <strong>로컬 self-host(OrbStack)</strong>로 전환한다 — 자세히는 2절과 <a href="phase-5-전국-확장.html">Phase 5</a> 참고.</td></tr>
 <tr><td>D6</td><td>iOS 구성</td><td><strong>iOS 17+ / XcodeGen</strong></td><td>TeslaSync와 같은 방식 — <code>project.yml</code>로 생성, <code>.xcodeproj</code>는 커밋하지 않음. supabase-swift v2, MapKit SwiftUI.</td></tr>
 <tr><td>D7</td><td>보안 경계</td><td><strong>anon key + 읽기 전용 RLS</strong></td><td>anon key는 앱에 넣어도 되는 공개 키다. 모든 테이블에 RLS를 켜고 select 정책만 준다. 쓰기는 로컬 ETL의 service_role 키로만.</td></tr>
 <tr><td>D8</td><td>분기 갱신 방식</td><td><strong>단일 트랜잭션 truncate + COPY</strong></td><td>Postgres MVCC 덕에 트랜잭션이 커밋되기 전까지 앱은 이전 데이터를 그대로 본다. 별도 스테이징 스왑 없이도 원자적 교체가 된다.</td></tr>
@@ -111,6 +111,8 @@ figcaption{font-size:.85rem;color:var(--muted);margin-top:.5rem}
 </figure>
 
 <p>핵심은 역할 분리다. 무거운 계산(분기 대조·교체 판정·집계)은 전부 로컬 ETL이 미리 끝내고, Supabase에는 <strong>완성된 결과만</strong> 들어간다. 앱은 그 결과를 읽기만 한다. 그래서 서버에서 도는 커스텀 코드가 없고, 분기 갱신은 ETL을 다시 돌리는 것으로 끝난다.</p>
+
+<blockquote class="warn"><p><strong>결정 변경 (2026-08-08)</strong> — 서울만 적재해도 무료 티어(500MB) 중 258MB를 썼고, 전국(16개 시도, 분기당 약 240만 행)은 DB 약 1.2GB로 추정돼 무료 티어를 넘는다. 위 그림의 <strong>Supabase(Seoul 리전)</strong> 상자는 전국 확장부터 <strong>OrbStack(Docker) 위 로컬 self-host 스택</strong>(PostGIS Postgres + PostgREST + nginx 프록시)으로 대체된다 — PostgREST API 표면이 동일해 앱은 URL·anon key만 바꾸면 된다. Supabase 클라우드(서울 데이터)는 MVP 검증용으로 당분간 유지한다. 비용은 Pro($25/월) 대신 0원. 대신 로컬 스택은 개발 Mac과 같은 네트워크에서만 접근되므로, App Store 공개 배포 시점엔 클라우드 재검토가 필요하다(<a href="phase-6-출시-자동화.html">Phase 6</a> 과제). 절차는 <a href="phase-5-전국-확장.html">Phase 5</a> 문서 참고.</p></blockquote>
 
 <h2>3. 데이터 스키마</h2>
 
@@ -234,7 +236,7 @@ figcaption{font-size:.85rem;color:var(--muted);margin-top:.5rem}
 <li>구조: 로컬 Python+DuckDB ETL → Supabase Postgres(+PostGIS) → iOS 앱 읽기 전용 질의.</li>
 <li>테이블 4개(places · place_history · region_stats · app_meta), 앱 진입점은 RPC 3개.</li>
 <li>phase 7개, 각각 실행해볼 수 있는 산출물로 끝난다. Phase 1의 20곳 게이트가 최대 관문.</li>
-<li>무료 티어 + 서울로 시작, Phase 5에서 실측 후 Pro 전환 결정.</li>
+<li>무료 티어 + 서울로 시작. 전국 확장부터는 용량 초과가 확실해져 Pro 대신 로컬 self-host(OrbStack)로 전환 (결정 변경 2026-08-08).</li>
 <li>진행 상황은 같은 폴더의 <code>tasks.md</code>에 체크한다.</li>
 </ul>
 </div>

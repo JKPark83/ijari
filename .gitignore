@@ -6,5 +6,7 @@ pipeline/spike/spike.duckdb
 pipeline/spike/samples.csv
 pipeline/spike/report/
 *.xcodeproj
+# xcodegen이 project.yml의 info 섹션에서 생성
+ios/Ijari/Info.plist
 __pycache__/
 .DS_Store

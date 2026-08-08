@@ -1,12 +1,18 @@
 """ETL 오케스트레이션 — normalize → timeline → aggregate → (선택) load.
 
 사용 (pipeline/ 디렉터리에서):
-    uv run python -m etl.run              # 로컬 빌드 + 로컬 검증까지
-    uv run python -m etl.run --load       # Supabase 적재 + 원격 검증까지 (.env 필요)
+    uv run python -m etl.run              # 서울: 로컬 빌드 + 로컬 검증까지
+    uv run python -m etl.run --load       # 적재 + 원격 검증까지 (.env 필요)
 
-data/raw/{분기}/ 에 서울 CSV가 없고 zip만 있으면 자동 추출한다.
+전국 (원본은 T31, 적재 대상은 로컬 스택):
+    IJARI_COVERAGE=전국 IJARI_RAW_DIR=/Volumes/T31/ijari/data/raw \
+    SUPABASE_DB_URL=$LOCAL_DB_URL uv run python -m etl.run --load
+
+data/raw/{분기}/ 에 서울 CSV가 없고 zip만 있으면 자동 추출한다 (서울 한정 —
+전국 추출은 zip 전체를 T31로 푸는 별도 절차).
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -15,11 +21,13 @@ import duckdb
 from . import aggregate, normalize, timeline, verify
 from .quarters import RAW_DIR, available, to_ord
 
-COVERAGE = "서울"
+COVERAGE = os.environ.get("IJARI_COVERAGE", "서울")
 BUILD_DB = Path(__file__).resolve().parent.parent / "build" / "etl.duckdb"
 
 
 def extract_missing() -> None:
+    if COVERAGE != "서울":
+        return
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from download import extract_sido
     for d in sorted(RAW_DIR.iterdir()):

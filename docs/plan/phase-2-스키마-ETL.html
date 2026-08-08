@@ -49,6 +49,8 @@ figcaption{font-size:.85rem;color:var(--muted);margin-top:.5rem}
 </ol>
 </div>
 
+<p><em>참고 (결정 변경 2026-08-08): 아래 스키마·RLS·RPC와 ETL 적재 로직은 전국 확장부터 쓰는 로컬 self-host 스택(<a href="phase-5-전국-확장.html">Phase 5</a> 참고)에도 그대로 적용된다 — 바뀌는 것은 접속 문자열(<code>SUPABASE_DB_URL</code> → 로컬 Postgres 접속 문자열)뿐이다.</em></p>
+
 <h2>1. 작업 순서</h2>
 <ol>
 <li>나머지 분기 CSV 내려받기 (2023Q2 ~ 최신, <code>data/raw/</code> 규약대로)</li>
@@ -206,7 +208,7 @@ $$;</code></pre>
 
 <ol>
 <li><strong>normalize</strong> — 분기별 CSV를 표준 테이블로 (Phase 1 코드 재사용). 좌표 결측·(0,0)인 행은 버리고 버린 수를 로그에 남긴다.</li>
-<li><strong>span</strong> — 점포(store_id)별 등장 분기 목록에서 연속 구간을 만든다. <strong>1개 분기 공백은 이어 붙인다</strong>(같은 ID가 한 분기 빠졌다 돌아오면 데이터 누락으로 간주). 2개 분기 이상 공백은 별도 구간.</li>
+<li><strong>span</strong> — 점포(store_id)별 등장 분기 목록에서 연속 구간을 만든다. <strong>1개 분기 공백은 이어 붙인다</strong>(같은 ID가 한 분기 빠졌다가 돌아오면 데이터 누락으로 간주). 2개 분기 이상 공백은 별도 구간.</li>
 <li><strong>merge (ID 재발급 병합)</strong> — 같은 place_key에서, 구간 A가 분기 t에 끝나고 구간 B가 t+1에 시작하며 <code>name_norm</code>이 같으면 하나의 논리적 점포로 병합. 기획서의 "상호가 같은데 ID만 바뀐 경우 = 재발급, 무시한다"의 구현이다. 2023년 2월 재편(15% ID 교체)이 교체로 잡히는 것을 막는 핵심 단계.</li>
 <li><strong>judge (교체 카운트)</strong> — place_key별·연속 분기쌍(t→t+1)별로:
 <pre><code>ended   = t에 끝난 논리적 점포 수 (병합 후)
